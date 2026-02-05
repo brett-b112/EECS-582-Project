@@ -1,0 +1,116 @@
+---
+title: Linux Kernel Security Monitor (LKSM) Architecture
+---
+flowchart TB
+    subgraph UserSpace["🖥️ User Space"]
+        subgraph PythonTools["Python Analysis Tools"]
+            EventReader["📖 Event Reader<br/>(Req 4)"]
+            LogParser["📝 JSON Log Parser<br/>(Req 7, 11)"]
+            RuleEngine["⚙️ Rule Engine<br/>(Req 8, 12)"]
+            AnomalyDetector["🔍 Anomaly Detection<br/>(Req 15)"]
+            NetworkCorrelator["🔗 Network Correlator<br/>(Req 14)"]
+            AlertSystem["🚨 Alert System<br/>(Req 17)"]
+            Dashboard["📊 Real-time Dashboard<br/>(ncurses/Rich)<br/>(Req 16)"]
+            ReportGen["📄 Report Generator<br/>(HTML/PDF)<br/>(Req 18)"]
+            ForensicTimeline["🕵️ Forensic Timeline<br/>Reconstructor<br/>(Req 27)"]
+        end
+        
+        subgraph Config["Configuration"]
+            YAMLConfig["📋 YAML Config<br/>Allowlist/Denylist<br/>(Req 12)"]
+        end
+        
+        subgraph Outputs["Outputs"]
+            JSONLogs["📁 JSON Log Files"]
+            Syslog["📜 Syslog"]
+            Webhook["🌐 Webhook<br/>(JSON POST)"]
+            HTMLReport["📊 HTML/PDF Reports"]
+        end
+    end
+    
+    subgraph CommLayer["📡 Communication Layer (Req 3)"]
+        ProcFS["/proc/lksm"]
+        Netlink["Netlink Socket"]
+    end
+    
+    subgraph KernelSpace["🐧 Kernel Space"]
+        subgraph LKM["Loadable Kernel Module (C)"]
+            ModuleCore["🔧 LKM Core<br/>(Req 2)"]
+            SelfProtect["🛡️ Self-Protection<br/>(Req 19)"]
+            RateLimiter["⚡ Rate Limiter<br/>& Dedup Buffer<br/>(Req 28)"]
+            
+            subgraph Hooks["Event Hooks (kprobes/tracepoints)"]
+                ProcessHook["👤 Process Creation<br/>fork/exec<br/>(Req 5, 6)"]
+                FileHook["📂 File Access<br/>/etc/passwd, shadow, SSH<br/>(Req 9)"]
+                ModuleHook["📦 Module Load/Unload<br/>(Req 10)"]
+                NetworkHook["🌐 Network Connect<br/>tcp_v4_connect<br/>(Req 13)"]
+                SyscallFilter["🔒 eBPF Syscall Filter<br/>(Req 26)"]
+            end
+        end
+    end
+    
+    subgraph KernelEvents["Kernel Events Monitored"]
+        ProcEvents["Process Events<br/>PID, PPID, UID,<br/>cmd, timestamp"]
+        FileEvents["File Events<br/>Sensitive path access"]
+        ModEvents["Module Events<br/>LKM load/unload"]
+        NetEvents["Network Events<br/>src/dst IP, port, PID"]
+    end
+    
+    subgraph Testing["🧪 Testing & QA"]
+        UnitTests["Unit Tests<br/>(pytest)<br/>(Req 20)"]
+        IntegTests["Integration Tests<br/>Attack Simulation<br/>(Req 21)"]
+        PerfBench["Performance<br/>Benchmarking<br/>(Req 23)"]
+    end
+    
+    subgraph DevEnv["🛠️ Development Environment (Req 1)"]
+        VM["VM with Kernel Headers"]
+        GCC["GCC & Make"]
+        PyVenv["Python venv"]
+        GitRepo["Git Repository"]
+    end
+    
+    %% Connections
+    ProcessHook --> ProcEvents
+    FileHook --> FileEvents
+    ModuleHook --> ModEvents
+    NetworkHook --> NetEvents
+    SyscallFilter --> ProcEvents
+    
+    ProcEvents --> RateLimiter
+    FileEvents --> RateLimiter
+    ModEvents --> RateLimiter
+    NetEvents --> RateLimiter
+    
+    RateLimiter --> CommLayer
+    ModuleCore --> CommLayer
+    SelfProtect -.-> ModuleCore
+    
+    CommLayer --> EventReader
+    EventReader --> LogParser
+    LogParser --> JSONLogs
+    
+    YAMLConfig --> RuleEngine
+    LogParser --> RuleEngine
+    RuleEngine --> AnomalyDetector
+    LogParser --> NetworkCorrelator
+    
+    AnomalyDetector --> AlertSystem
+    NetworkCorrelator --> AnomalyDetector
+    
+    AlertSystem --> Syslog
+    AlertSystem --> Webhook
+    AlertSystem --> Dashboard
+    
+    JSONLogs --> ReportGen
+    JSONLogs --> ForensicTimeline
+    ReportGen --> HTMLReport
+    ForensicTimeline --> HTMLReport
+    
+    UnitTests -.-> LogParser
+    UnitTests -.-> RuleEngine
+    UnitTests -.-> ReportGen
+    IntegTests -.-> LKM
+    IntegTests -.-> PythonTools
+    PerfBench -.-> Hooks
+    
+    DevEnv -.-> LKM
+    DevEnv -.-> PythonTools
