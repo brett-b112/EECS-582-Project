@@ -1,0 +1,34 @@
+# LKSM Default Configuration
+
+# Communication settings
+communication:
+  interface: procfs  # procfs or netlink
+  procfs_path: /proc/lksm
+  poll_interval: 0.1  # seconds
+
+# Logging settings
+logging:
+  enabled: true
+  output_dir: data/logs
+  format: json
+  max_file_size: 100MB
+  rotation: daily
+
+# Analysis settings
+analysis:
+  enable_rules: true
+  enable_anomaly_detection: true
+  enable_network_correlation: true
+
+# Alert settings
+alerts:
+  enabled: true
+  syslog: true
+  webhooks:
+    - url: ""  # Add webhook URL
+      enabled: false
+
+# Dashboard settings
+dashboard:
+  refresh_rate: 1.0  # seconds
+  max_events_display: 100

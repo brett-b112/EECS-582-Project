@@ -1,0 +1,71 @@
+# LKSM - Linux Kernel Security Monitor
+# Python Dependencies (User Space Analysis Suite)
+# Generated: February 2026
+
+# Core Dependencies
+# -----------------
+
+# YAML parsing for configuration files (rule engine, policies)
+PyYAML==6.0.1
+
+# Rich terminal UI for dashboard
+rich==13.7.0
+
+# Alternative terminal UI (if not using Rich)
+# windows-curses==2.3.1  # Only needed on Windows
+
+# JSON handling (built-in, but jsonschema for validation)
+jsonschema==4.21.1
+
+# Logging and monitoring
+python-json-logger==2.0.7
+
+# Date/time handling
+python-dateutil==2.8.2
+
+# Development & Testing Dependencies
+# -----------------------------------
+
+# Testing framework
+pytest==8.0.0
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+
+# Code quality
+pylint==3.0.3
+black==24.1.1
+flake8==7.0.0
+
+# Type checking
+mypy==1.8.0
+
+# Documentation
+sphinx==7.2.6
+sphinx-rtd-theme==2.0.0
+
+# Optional: Network Analysis Enhancement
+# ---------------------------------------
+
+# IP address handling
+ipaddress==1.0.23  # Backport for older Python, built-in for 3.3+
+
+# DNS resolution
+dnspython==2.5.0
+
+# Optional: Alert System Enhancements
+# ------------------------------------
+
+# Webhook/HTTP requests for alerting
+requests==2.31.0
+
+# Email alerts (built-in smtplib, but for enhanced features)
+# secure-smtplib==0.1.1
+
+# System Integration
+# ------------------
+
+# Process information gathering
+psutil==5.9.8
+
+# File system monitoring (if implementing file watching)
+watchdog==4.0.0

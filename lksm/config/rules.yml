@@ -1,0 +1,33 @@
+# LKSM Detection Rules
+
+rules:
+  - name: "Suspicious shell spawn from web server"
+    description: "Web server process spawning a shell"
+    type: process
+    condition:
+      parent_process_name:
+        - nginx
+        - apache2
+        - httpd
+      child_process_name:
+        - bash
+        - sh
+        - zsh
+    severity: high
+    
+  - name: "Unauthorized kernel module load"
+    description: "Kernel module loaded that's not on allowlist"
+    type: module
+    condition:
+      module_name_not_in: allowlist
+    severity: critical
+    
+  - name: "Sensitive file access"
+    description: "Access to sensitive system files"
+    type: file
+    condition:
+      path_matches:
+        - /etc/shadow
+        - /etc/passwd
+        - /root/.ssh/*
+    severity: medium
