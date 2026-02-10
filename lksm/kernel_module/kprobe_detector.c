@@ -1,7 +1,6 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
-#include <linux/ftrace.h>
-#include <linux/linkage.h>
+#include "photon_ring_arch.h"
 #include <linux/slab.h>
 #include <linux/kprobes.h>
 
@@ -14,15 +13,10 @@ static struct ftrace_ops ops;
 
 static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_ip, struct ftrace_ops *ops, struct ftrace_regs *fregs)
 {
-    struct pt_regs *regs = ftrace_get_regs(fregs);
     struct kprobe *kp;
 
-    if (!regs)
-        return;
-    
-    // get first arg (struct kprobe *p)
-    // first arg is in rdi
-    kp = (struct kprobe *)regs->di;
+    // get first arg (struct kprobe *p) portably via ftrace_regs
+    kp = (struct kprobe *)PHOTON_RING_GET_ARG(fregs, 0);
 
     if (kp) {
         // log kprobe registration event
@@ -51,7 +45,7 @@ static int __init detector_init(void)
 
     // set up ftrace hook
     ops.func = hook_kprobe_register;
-    ops.flags = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_IPMODIFY;
+    ops.flags = PHOTON_RING_FTRACE_FLAGS;
 
     // register ftrace hook
     ret = ftrace_set_filter_ip(&ops, addr, 0, 0);

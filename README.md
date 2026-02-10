@@ -6,10 +6,8 @@ A loadable kernel module and Python toolkit for real-time Linux security monitor
 
 LKSM has two intertwined components:
 
-1. **Kernel Module** (C) — a loadable kernel module (`lksm.ko`) that hooks into the Linux kernel to monitor security events in real-time (syscalls, network activity, etc.)
-2. **Python Tools** — a user-space Python suite that reads data from the kernel module (via `/proc/lksm`), analyzes it, and displays it in a dashboard or logs it
-
-The Python tools consume data produced by the kernel module. The kernel module must be loaded first, then the Python tools connect to it to display and analyze the monitoring data.
+1. **Kernel Module** (C) — a loadable kernel module (`kprobe_detector.ko`) that hooks into the Linux kernel via ftrace to monitor kprobe registrations and detect suspicious activity
+2. **Python Tools** — a user-space Python suite for analysis and monitoring
 
 **Prerequisite:** This must be run on a **Linux machine** (Ubuntu/Debian/Fedora/Arch). It requires Linux kernel headers and kernel module loading.
 
@@ -49,34 +47,23 @@ make test-env
 cd kernel_module && make && cd ..
 ```
 
-This compiles the kernel module (`lksm.ko`) from four source files: `lksm_main.c`, `lksm_hooks.c`, `lksm_buffer.c`, `lksm_comm.c`.
+This compiles `kprobe_detector.ko`, the kprobe registration monitor. It uses `photon_ring_arch.h` for portable ftrace access across x86_64 and ARM64.
 
 ### Step 5: Load the Kernel Module
 
 ```bash
-sudo scripts/load_module.sh
+bash scripts/load_module.sh
 ```
 
-Verify it's loaded with:
-
-```bash
-lsmod | grep lksm
-dmesg | tail
-```
-
-### Step 6: Run the Python Monitoring Tools
-
-```bash
-python -m python_tools.main --mode dashboard    # Interactive dashboard
-python -m python_tools.main --mode daemon        # Background monitoring
-python -m python_tools.main --mode analyze --file log.json  # Analyze a log file
-```
+This builds, loads, and shows module status and kernel logs automatically.
 
 ### Stopping / Unloading
 
 ```bash
-sudo scripts/unload_module.sh
+bash scripts/unload_module.sh
 ```
+
+This unloads the module and cleans build artifacts.
 
 ## Version Checks
 
