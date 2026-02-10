@@ -111,6 +111,26 @@ def test_kprobe_reader_deduplicates(mock_run):
     assert len(second) == 0
 
 
+FAKE_DMESG_SAME_TS = """\
+kern  :info  : [  120.001234] [PHOTON RING] Kprobe registered for symbol: do_init_module
+kern  :warn  : [  120.001234] [PHOTON RING] SUSPICIOUS *** kallsyms_lookup_name probe detected!
+"""
+
+
+@patch("python_tools.core.modules.kprobe_reader.subprocess.run")
+def test_kprobe_reader_same_timestamp_different_msg(mock_run):
+    """Events with identical timestamps but different messages are both captured."""
+    mock_run.return_value = MagicMock(stdout=FAKE_DMESG_SAME_TS)
+
+    reader = KprobeReaderModule()
+    reader.start({})
+
+    events = reader.poll()
+    assert len(events) == 2
+    assert events[0].type == "kprobe_registered"
+    assert events[1].type == "suspicious_probe"
+
+
 # --------------- Dashboard smoke tests ---------------
 
 @pytest.fixture()

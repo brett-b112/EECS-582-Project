@@ -19,6 +19,7 @@ class KprobeReaderModule(MonitorModule):
 
     def __init__(self):
         self._last_ts: float = 0.0
+        self._seen_at_last_ts: set = set()
         self._running: bool = False
 
     @property
@@ -51,10 +52,13 @@ class KprobeReaderModule(MonitorModule):
                 continue
 
             ts = float(m.group("ts"))
-            if ts <= self._last_ts:
+            if ts < self._last_ts:
                 continue
 
             msg = m.group("msg").strip()
+
+            if ts == self._last_ts and msg in self._seen_at_last_ts:
+                continue
             severity, ev_type, data = _parse_message(msg)
 
             events.append(LKSMEvent(
@@ -67,7 +71,13 @@ class KprobeReaderModule(MonitorModule):
             ))
 
         if events:
-            self._last_ts = events[-1].ts
+            new_last_ts = events[-1].ts
+            if new_last_ts > self._last_ts:
+                self._last_ts = new_last_ts
+                self._seen_at_last_ts = set()
+            for ev in events:
+                if ev.ts == self._last_ts:
+                    self._seen_at_last_ts.add(ev.data.get("message", ev.data.get("symbol", "")))
 
         return events
 

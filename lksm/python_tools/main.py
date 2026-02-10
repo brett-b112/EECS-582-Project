@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -30,14 +31,14 @@ def load_config(path: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def run_daemon(config: dict, stop_event: threading.Event | None = None) -> None:
+def run_daemon(config: dict, stop_event: Optional[threading.Event] = None) -> None:
     """Poll modules in a loop, log events, and push to dashboard."""
     registry = ModuleRegistry()
     registry.discover("python_tools.core.modules")
     registry.start_all(config)
 
     logger = EventLogger(config)
-    interval = config.get("communication", {}).get("poll_interval", 1.0)
+    interval = config.get("communication", {}).get("poll_interval", 0.1)
 
     print(f"Daemon running — modules: {registry.module_names}")
     try:

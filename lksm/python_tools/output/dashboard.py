@@ -24,7 +24,7 @@ _HTML = """\
 <style>
   body { background:#1a1a2e; color:#e0e0e0; font-family:monospace; margin:2em; }
   h1 { color:#00d4ff; }
-  table { border-collapse:collapse; width:100%%; }
+  table { border-collapse:collapse; width:100%; }
   th,td { border:1px solid #333; padding:6px 10px; text-align:left; }
   th { background:#16213e; color:#00d4ff; }
   tr:nth-child(even) { background:#0f3460; }
