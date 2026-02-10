@@ -64,13 +64,25 @@ verify-kernel:
 	@echo ""
 	@if [ -f /boot/config-$$(uname -r) ]; then \
 		echo "Checking required kernel options:"; \
-		for opt in CONFIG_MODULES CONFIG_KPROBES CONFIG_TRACEPOINTS CONFIG_PROC_FS CONFIG_NETLINK; do \
+		for opt in CONFIG_MODULES CONFIG_KPROBES CONFIG_DYNAMIC_FTRACE CONFIG_TRACEPOINTS; do \
 			if grep -q "^$$opt=y" /boot/config-$$(uname -r); then \
 				echo "  ✓ $$opt"; \
 			else \
 				echo "  ✗ $$opt (NOT ENABLED)"; \
 			fi; \
 		done; \
+		echo ""; \
+		echo "Ftrace argument access (need at least one):"; \
+		if grep -q "^CONFIG_DYNAMIC_FTRACE_WITH_ARGS=y" /boot/config-$$(uname -r); then \
+			echo "  ✓ CONFIG_DYNAMIC_FTRACE_WITH_ARGS (ARM64)"; \
+		else \
+			echo "  - CONFIG_DYNAMIC_FTRACE_WITH_ARGS not set"; \
+		fi; \
+		if grep -q "^CONFIG_DYNAMIC_FTRACE_WITH_REGS=y" /boot/config-$$(uname -r); then \
+			echo "  ✓ CONFIG_DYNAMIC_FTRACE_WITH_REGS (x86)"; \
+		else \
+			echo "  - CONFIG_DYNAMIC_FTRACE_WITH_REGS not set"; \
+		fi; \
 	else \
 		echo "  ? Kernel config not found at /boot/config-$$(uname -r)"; \
 	fi

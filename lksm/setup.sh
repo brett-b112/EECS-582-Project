@@ -138,8 +138,20 @@ check_kernel_config() {
 CONFIGS_OK=true
 check_kernel_config "CONFIG_MODULES" || CONFIGS_OK=false
 check_kernel_config "CONFIG_KPROBES" || CONFIGS_OK=false
+check_kernel_config "CONFIG_DYNAMIC_FTRACE" || CONFIGS_OK=false
 check_kernel_config "CONFIG_TRACEPOINTS" || CONFIGS_OK=false
-check_kernel_config "CONFIG_PROC_FS" || CONFIGS_OK=false
+
+# Check for ftrace argument access (need at least one)
+if [ -f /boot/config-$(uname -r) ]; then
+    if grep -q "^CONFIG_DYNAMIC_FTRACE_WITH_ARGS=y" /boot/config-$(uname -r); then
+        echo "  ✓ CONFIG_DYNAMIC_FTRACE_WITH_ARGS is enabled (ARM64 ftrace)"
+    elif grep -q "^CONFIG_DYNAMIC_FTRACE_WITH_REGS=y" /boot/config-$(uname -r); then
+        echo "  ✓ CONFIG_DYNAMIC_FTRACE_WITH_REGS is enabled (x86 ftrace)"
+    else
+        echo "  ✗ Neither CONFIG_DYNAMIC_FTRACE_WITH_ARGS nor CONFIG_DYNAMIC_FTRACE_WITH_REGS is enabled"
+        CONFIGS_OK=false
+    fi
+fi
 
 if [ "$CONFIGS_OK" = false ]; then
     echo ""
@@ -203,17 +215,32 @@ if command_exists pytest; then
     echo "pytest version: $(pytest --version | head -n1)"
 fi
 
+# Step 6: Build kernel module
+echo "Step 6: Building kernel module..."
+echo "------------------------------------------------------"
+
+if [ -f "$PROJECT_ROOT/kernel_module/Makefile" ]; then
+    make -C "$PROJECT_ROOT/kernel_module" clean 2>/dev/null || true
+    make -C "$PROJECT_ROOT/kernel_module"
+    echo "✓ Kernel module built: kernel_module/kprobe_detector.ko"
+else
+    echo "WARNING: kernel_module/Makefile not found. Skipping build."
+fi
+
 echo ""
 echo "================================================"
 echo "Setup Complete!"
 echo "================================================"
 echo ""
-echo "To activate the Python environment in the future, run:"
+echo "To activate the Python environment:"
 echo "  source venv/bin/activate"
 echo ""
-echo "To verify your environment, run:"
-echo "  make test-env"
+echo "To load the kernel module:"
+echo "  sudo insmod kernel_module/kprobe_detector.ko"
 echo ""
-echo "To build the kernel module, run:"
-echo "  cd kernel_module && make"
+echo "To unload:"
+echo "  sudo rmmod kprobe_detector"
+echo ""
+echo "To watch detections:"
+echo "  sudo dmesg -w"
 echo ""

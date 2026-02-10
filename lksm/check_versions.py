@@ -12,9 +12,9 @@ from pathlib import Path
 # Expected versions (update these as needed)
 EXPECTED_VERSIONS = {
     'python_min': (3, 8),
-    'python_max': (3, 12),
+    'python_max': (3, 13),
     'gcc_min': 9,
-    'kernel_min': (4, 15),
+    'kernel_min': (5, 10),
 }
 
 # Color codes for terminal output

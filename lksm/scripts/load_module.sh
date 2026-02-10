@@ -3,7 +3,7 @@
 
 set -e
 
-MODULE_PATH="../kernel_module/lksm.ko"
+MODULE_PATH="../kernel_module/kprobe_detector.ko"
 
 if [ ! -f "$MODULE_PATH" ]; then
     echo "Error: Module not found at $MODULE_PATH"

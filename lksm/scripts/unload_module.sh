@@ -1,9 +1,10 @@
 #!/bin/bash
-# Unload LKSM kernel module
+# Unload the kprobe_detector kernel module
 
 set -e
 
-echo "Unloading LKSM kernel module..."
-sudo rmmod lksm
+echo "Unloading kprobe_detector kernel module..."
+sudo rmmod kprobe_detector
 
-echo "✓ Module unloaded"
+echo "Module unloaded. Check dmesg for confirmation:"
+echo "  sudo dmesg | tail -5"

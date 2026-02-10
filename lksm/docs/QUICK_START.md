@@ -1,174 +1,102 @@
-# LKSM Dependency Management - Quick Reference
+# LKSM Quick Start Guide
 
-## 📦 Files Included
+## Prerequisites
 
-1. **requirements.txt** - Pinned Python dependencies
-2. **KERNEL_DEPENDENCIES.md** - System package requirements
-3. **setup.sh** - Automated environment setup script
-4. **Makefile** - Commands for managing the environment
-5. **DEPENDENCY_MANAGEMENT.md** - Comprehensive guide
-6. **.gitignore** - Git ignore rules for the project
-7. **check_versions.py** - Verify environment compatibility
+- Linux with kernel headers installed
+- `build-essential` (gcc, make)
+- Python 3.8+
 
-## 🚀 Quick Start for New Team Members
+## 1. Clone and Set Up
 
 ```bash
-# 1. Clone the repository
-git clone <your-repo>
+git clone <your-repo-url>
 cd lksm
 
-# 2. Run automated setup
+# Install system deps and set up Python venv
 bash setup.sh
 
-# 3. Activate Python environment
-source venv/bin/activate
-
-# 4. Verify everything is working
-python check_versions.py
-make test-env
-```
-
-## 🔑 Key Commands
-
-### Environment Setup
-```bash
-make setup          # Run full setup
-make test-env       # Verify environment
-make verify-kernel  # Check kernel configuration
-```
-
-### Daily Workflow
-```bash
-source venv/bin/activate    # Always run this first!
-python check_versions.py    # Verify versions
-```
-
-### Adding Dependencies
-```bash
-# 1. Add to requirements.txt with exact version
-echo "new-package==1.2.3" >> requirements.txt
-
-# 2. Install it
-pip install -r requirements.txt
-
-# 3. Commit and notify team
-git add requirements.txt
-git commit -m "Add new-package dependency"
-git push
-```
-
-## 📋 Ensuring Same Versions Across Team
-
-### Python Dependencies
-- ✅ **Always pin exact versions** in requirements.txt
-- ✅ Use virtual environments (`venv/`)
-- ✅ Never use version ranges like `>=1.0`
-
-Example:
-```
-PyYAML==6.0.1        # Good - exact version
-PyYAML>=6.0          # Bad - could be 6.0, 6.1, 7.0...
-```
-
-### System Dependencies
-- ✅ Use the **same OS/version** across team (e.g., Ubuntu 22.04)
-- ✅ Document kernel version: `uname -r`
-- ✅ Run `setup.sh` to install system packages
-
-### Verification
-Run these to ensure consistency:
-```bash
-python check_versions.py    # Check Python, GCC, kernel
-make test-env               # Full environment check
-pip list                    # Show installed packages
-```
-
-## 🎯 Best Practices
-
-### DO:
-✅ Always activate venv before working
-✅ Pin exact versions in requirements.txt
-✅ Commit requirements.txt to git
-✅ Run check_versions.py regularly
-✅ Test before committing dependency changes
-
-### DON'T:
-❌ Use `sudo pip install` (system-wide install)
-❌ Commit `venv/` directory to git
-❌ Use version ranges in requirements.txt
-❌ Install packages without updating requirements.txt
-
-## 🔧 Common Issues & Solutions
-
-### "Command not found" errors
-```bash
-# Make sure you activated the virtual environment
+# Activate the Python environment
 source venv/bin/activate
 ```
 
-### "Permission denied" when installing
+## 2. Build the Kernel Module
+
 ```bash
-# Don't use sudo! Use virtual environment
-source venv/bin/activate
-pip install -r requirements.txt
+cd kernel_module
+make
 ```
 
-### "Kernel headers not found"
+This produces `kprobe_detector.ko`.
+
+## 3. Load the Module
+
 ```bash
-# Install headers for your current kernel
+sudo insmod kprobe_detector.ko
+```
+
+Verify it loaded:
+
+```bash
+lsmod | grep kprobe_detector
+sudo dmesg | tail -5
+```
+
+You should see:
+
+```
+[PHOTON RING] initializing kprobe detector...
+[PHOTON RING] successfully hooked register_kprobe
+[PHOTON RING] now monitoring all kprobe registrations...
+```
+
+## 4. Monitor
+
+Watch for kprobe registration events in real-time:
+
+```bash
+sudo dmesg -w
+```
+
+## 5. Unload the Module
+
+```bash
+sudo rmmod kprobe_detector
+```
+
+## Rebuilding After Changes
+
+```bash
+cd kernel_module
+make clean
+make
+```
+
+## Troubleshooting
+
+### "insmod: ERROR: could not insert module ... Invalid parameters"
+
+Your kernel may not support the ftrace flags the module uses. Check the kernel
+config:
+
+```bash
+grep DYNAMIC_FTRACE /boot/config-$(uname -r)
+```
+
+The module requires `CONFIG_DYNAMIC_FTRACE_WITH_ARGS=y` (ARM64) or
+`CONFIG_DYNAMIC_FTRACE_WITH_REGS=y` (x86). Most stock Ubuntu/Debian kernels
+have this enabled.
+
+### "kernel headers not found"
+
+```bash
 sudo apt install linux-headers-$(uname -r)
 ```
 
-### Dependencies out of sync
-```bash
-# Pull latest code
-git pull
+### Verify kernel configuration
 
-# Reinstall dependencies
-source venv/bin/activate
-pip install -r requirements.txt
+```bash
+make verify-kernel
 ```
 
-### Fresh start needed
-```bash
-# Remove virtual environment
-make clean-venv
-
-# Run setup again
-make setup
-```
-
-## 📚 Documentation Structure
-
-- **DEPENDENCY_MANAGEMENT.md** - Full guide with scenarios and troubleshooting
-- **KERNEL_DEPENDENCIES.md** - System package details
-- **This file** - Quick reference for common tasks
-
-## 🎓 For School Projects Without CI/CD
-
-Since you won't be using containers or CI/CD, **consistency depends on:**
-
-1. **Communication** - Notify team when dependencies change
-2. **Virtual environments** - Isolate project dependencies
-3. **Version pinning** - Lock exact versions
-4. **Regular checks** - Run `check_versions.py` frequently
-5. **Same OS** - Ideally use same Linux distro/version
-
-## 📝 Team Coordination
-
-When someone adds a dependency:
-1. Update `requirements.txt` with exact version
-2. Commit and push
-3. Notify team via Slack/Discord/Email: "New dependency added, run `pip install -r requirements.txt`"
-
-## 🆘 Getting Help
-
-1. Read DEPENDENCY_MANAGEMENT.md
-2. Run `make test-env` and `python check_versions.py`
-3. Check error messages carefully
-4. Ask team members
-5. Update documentation when you find solutions!
-
----
-
-**Remember:** The goal is reproducibility. Every team member should be able to run the same code with the same results!
+This checks that `CONFIG_MODULES`, `CONFIG_KPROBES`, `CONFIG_DYNAMIC_FTRACE`,
+and `CONFIG_TRACEPOINTS` are enabled.
