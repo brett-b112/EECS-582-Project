@@ -43,6 +43,30 @@ Check your config:
 grep -E 'CONFIG_MODULES|CONFIG_KPROBES|DYNAMIC_FTRACE' /boot/config-$(uname -r)
 ```
 
+## dmesg Access
+
+The Python monitoring tools read kernel events from the ring buffer via
+`dmesg`. On most modern kernels, `kernel.dmesg_restrict` defaults to `1`,
+meaning only root can read dmesg.
+
+Check the current setting:
+
+```bash
+sysctl kernel.dmesg_restrict
+```
+
+If it is `1`, you have two options when running the dashboard or daemon:
+
+1. **Run with sudo** using the venv Python path:
+   ```bash
+   sudo venv/bin/python -m python_tools.main --mode dashboard
+   ```
+
+2. **Relax the restriction** (reverts on reboot):
+   ```bash
+   sudo sysctl kernel.dmesg_restrict=0
+   ```
+
 ## Version Requirements
 
 - Kernel: 5.10+

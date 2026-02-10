@@ -17,6 +17,9 @@ bash setup.sh
 
 # Activate the Python environment
 source venv/bin/activate
+
+# Install Python dependencies
+pip install -r requirements.txt
 ```
 
 ## 2. Build the Kernel Module
@@ -49,15 +52,53 @@ You should see:
 [PHOTON RING] now monitoring all kprobe registrations...
 ```
 
-## 4. Monitor
+## 4. Run the Dashboard
 
-Watch for kprobe registration events in real-time:
+The monitoring dashboard reads `[PHOTON RING]` events from dmesg and displays
+them in a live web UI.
+
+**Important:** The dashboard needs permission to read the kernel ring buffer
+(`dmesg`). Modern kernels restrict this to root by default. You have two options:
+
+**Option A — Run the dashboard with sudo** (recommended):
 
 ```bash
-sudo dmesg -w
+sudo venv/bin/python -m python_tools.main --mode dashboard
 ```
 
-## 5. Unload the Module
+Note: `sudo python` won't find the venv Python — you must use the full
+`venv/bin/python` path.
+
+**Option B — Allow your user to read dmesg** (persists until reboot):
+
+```bash
+sudo sysctl kernel.dmesg_restrict=0
+python -m python_tools.main --mode dashboard
+```
+
+Then open **http://127.0.0.1:5000** in your browser. The event table
+auto-refreshes every 2 seconds.
+
+### Other Modes
+
+```bash
+# Headless daemon — polls modules and writes JSON logs only (no web UI)
+sudo venv/bin/python -m python_tools.main --mode daemon
+
+# Use a custom config file
+sudo venv/bin/python -m python_tools.main --mode dashboard --config path/to/config.yml
+```
+
+Events are also logged to `data/logs/lksm_events_YYYY-MM-DD.jsonl`.
+
+## 5. Run Tests
+
+```bash
+source venv/bin/activate
+python -m pytest tests/ -v
+```
+
+## 6. Unload the Module
 
 ```bash
 sudo rmmod kprobe_detector
@@ -72,6 +113,29 @@ make
 ```
 
 ## Troubleshooting
+
+### No events on the dashboard
+
+The most common cause is `dmesg` permission. Test it:
+
+```bash
+dmesg | grep "PHOTON RING"
+```
+
+If you see `Operation not permitted`, either run the dashboard with
+`sudo venv/bin/python` or relax the restriction:
+
+```bash
+sudo sysctl kernel.dmesg_restrict=0
+```
+
+### `sudo python`: command not found
+
+`sudo` does not inherit your virtual environment. Always use the full path:
+
+```bash
+sudo venv/bin/python -m python_tools.main --mode dashboard
+```
 
 ### "insmod: ERROR: could not insert module ... Invalid parameters"
 
