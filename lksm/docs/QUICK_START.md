@@ -104,6 +104,28 @@ python -m pytest tests/ -v
 sudo rmmod kprobe_detector
 ```
 
+## Extending the Kernel Module
+
+Any `printk` in the kernel module that includes `[PHOTON RING]` is automatically
+picked up by the Python pipeline — logged to JSONL and shown on the dashboard —
+with **no Python changes required**. For example, if you add a new printk on the
+C side:
+
+```c
+printk(KERN_WARNING "[PHOTON RING] Module loaded: %s by uid %d\n", name, uid);
+```
+
+It will appear on the dashboard immediately as a generic event
+(`type: "photon_ring_generic"`) with the raw message in the details column.
+
+To get **structured parsing** (extracting the module name and uid into separate
+fields), add a branch to `_parse_message()` in
+`python_tools/core/modules/kprobe_reader.py`. That's a ~3 line change in one file.
+
+For entirely new data sources (not dmesg-based), create a new module file in
+`python_tools/core/modules/`. See `docs/notes/python_pipeline_deep_dive.md` for
+the full walkthrough.
+
 ## Rebuilding After Changes
 
 ```bash
