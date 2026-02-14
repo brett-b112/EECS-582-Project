@@ -1,4 +1,9 @@
-# LKSM - Linux Kernel Security Monitor
+
+<img width="2000" height="2000" alt="photon_ring_logo" src="https://github.com/user-attachments/assets/4c139850-ec36-4381-98c4-fa9b5222bb18" />
+
+# PHOTON RING
+### A Linux Kernel Security Monitor 
+---
 
 A loadable kernel module and Python toolkit for real-time Linux security monitoring.
 
