@@ -1,11 +1,11 @@
 #!/bin/bash
-# Build and load the kprobe detector kernel module
+# Build and load the Photon Ring kernel module
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MODULE_DIR="$SCRIPT_DIR/../kernel_module"
-MODULE_PATH="$MODULE_DIR/kprobe_detector.ko"
+MODULE_PATH="$MODULE_DIR/photon_ring.ko"
 
 echo "=== Building Module ==="
 make -C "$MODULE_DIR"
@@ -16,7 +16,7 @@ sudo insmod "$MODULE_PATH"
 
 echo ""
 echo "=== Module Status ==="
-lsmod | grep kprobe_detector || true
+lsmod | grep photon_ring || true
 
 echo ""
 echo "=== Kernel Logs ==="

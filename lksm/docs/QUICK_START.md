@@ -29,18 +29,19 @@ cd kernel_module
 make
 ```
 
-This produces `kprobe_detector.ko`.
+This produces `photon_ring.ko`. The module uses a detector registry in `main.c`
+that loads individual detection modules (currently `kprobe_detector`).
 
 ## 3. Load the Module
 
 ```bash
-sudo insmod kprobe_detector.ko
+sudo insmod photon_ring.ko
 ```
 
 Verify it loaded:
 
 ```bash
-lsmod | grep kprobe_detector
+lsmod | grep photon_ring
 sudo dmesg | tail -5
 ```
 
@@ -101,7 +102,7 @@ python -m pytest tests/ -v
 ## 6. Unload the Module
 
 ```bash
-sudo rmmod kprobe_detector
+sudo rmmod photon_ring
 ```
 
 ## Extending the Kernel Module
