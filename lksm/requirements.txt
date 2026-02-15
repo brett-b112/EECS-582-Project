@@ -23,6 +23,9 @@ python-json-logger==2.0.7
 # Date/time handling
 python-dateutil==2.8.2
 
+# Web dashboard
+Flask==3.0.0
+
 # Development & Testing Dependencies
 # -----------------------------------
 

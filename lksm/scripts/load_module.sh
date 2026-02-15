@@ -1,20 +1,23 @@
 #!/bin/bash
-# Load LKSM kernel module
+# Build and load the kprobe detector kernel module
 
 set -e
 
-MODULE_PATH="../kernel_module/kprobe_detector.ko"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MODULE_DIR="$SCRIPT_DIR/../kernel_module"
+MODULE_PATH="$MODULE_DIR/kprobe_detector.ko"
 
-if [ ! -f "$MODULE_PATH" ]; then
-    echo "Error: Module not found at $MODULE_PATH"
-    echo "Build it first with: cd kernel_module && make"
-    exit 1
-fi
+echo "=== Building Module ==="
+make -C "$MODULE_DIR"
 
-echo "Loading LKSM kernel module..."
-sudo insmod "$MODULE_PATH" debug=1
-
-echo "✓ Module loaded"
 echo ""
-echo "Verify with: lsmod | grep lksm"
-echo "View logs with: dmesg | tail"
+echo "=== Loading Module ==="
+sudo insmod "$MODULE_PATH"
+
+echo ""
+echo "=== Module Status ==="
+lsmod | grep kprobe_detector || true
+
+echo ""
+echo "=== Kernel Logs ==="
+sudo dmesg | grep 'PHOTON RING' || true

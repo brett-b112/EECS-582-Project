@@ -1,17 +1,14 @@
-#include <linux/module.h>
 #include <linux/kernel.h>
-#include "photon_ring_arch.h"
-#include <linux/slab.h>
 #include <linux/kprobes.h>
-
-MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Jamie");
-MODULE_DESCRIPTION("Kprobe registration using ftrace");
-MODULE_VERSION("1.0");
+#include <linux/ftrace.h>
+#include <linux/string.h>
+#include "photon_ring_arch.h"
+#include "kprobe_detector.h"
 
 static struct ftrace_ops ops;
 
-static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_ip, struct ftrace_ops *ops, struct ftrace_regs *fregs)
+static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_ip, 
+                                         struct ftrace_ops *ops, struct ftrace_regs *fregs)
 {
     struct kprobe *kp;
 
@@ -21,7 +18,8 @@ static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_
     if (kp) {
         // log kprobe registration event
         if (kp->symbol_name) {
-            printk(KERN_ALERT "[PHOTON RING] Kprobe registered for symbol: %s\n", kp->symbol_name);
+            printk(KERN_ALERT "[PHOTON RING] Kprobe registered for symbol: %s\n", 
+                   kp->symbol_name);
 
             // check for suspicious patterns
             if (strcmp(kp->symbol_name, "kallsyms_lookup_name") == 0) {
@@ -31,7 +29,7 @@ static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_
     }
 }
 
-static int __init detector_init(void)
+int kprobe_detector_init(void)
 {
     unsigned long addr;
     int ret;
@@ -67,7 +65,7 @@ static int __init detector_init(void)
     return 0;
 }
 
-static void __exit detector_exit(void) 
+void kprobe_detector_exit(void) 
 {
     printk(KERN_INFO "[PHOTON RING] removing kprobe detector...\n");
 
@@ -77,6 +75,3 @@ static void __exit detector_exit(void)
 
     printk(KERN_INFO "[PHOTON RING] kprobe detector removed\n");
 }
-
-module_init(detector_init);
-module_exit(detector_exit);
