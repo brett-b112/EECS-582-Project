@@ -85,7 +85,7 @@ This unloads the module and cleans build artifacts.
 ## Team
 
 - Team Number: Group 32
-- Team Members: Jamie King, Brett Balquist, Kaden Huber, Hart Nurnber, Max Biundo, & Dustin Le
+- Team Members: Jamie King, Brett Balquist, Kaden Huber, Hart Nurnberg, Max Biundo, & Dustin Le
 
 ## License
 
