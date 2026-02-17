@@ -20,9 +20,19 @@ struct detector {
 
 static struct detector detectors[] = {
     {
-        .name = "kprobe_detector",
-        .init = kprobe_detector_init,
+        .name = "kprobe_detector", 
+        .init = kprobe_detector_init, 
         .exit = kprobe_detector_exit,
+    },
+    {
+        .name = "taskstats_hook_detector", 
+        .init = ,taskstats_hook_detector_init
+        .exit = ,taskstats_hook_detector_exit
+    },
+    {
+        .name = "hooking_audit_detector", 
+        .init = , hooking_audit_detector_init
+        .exit = , hooking_audit_detector_exit
     },
     /* add future detectors here:
      * {

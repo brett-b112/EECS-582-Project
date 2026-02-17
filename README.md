@@ -8,7 +8,7 @@ A loadable kernel module and Python toolkit for real-time Linux security monitor
 
 LKSM has two intertwined components:
 
-1. **Kernel Module** (C) — a loadable kernel module (`kprobe_detector.ko`) that hooks into the Linux kernel via ftrace to monitor kprobe registrations and detect suspicious activity
+1. **Kernel Module** (C) — a loadable kernel module (`photon_ring.ko`) that hooks into the Linux kernel via ftrace to monitor kprobe registrations and detect suspicious activity. Uses a modular detector registry so new detectors can be added easily.
 2. **Python Tools** — a user-space Python suite for analysis and monitoring
 
 **Prerequisite:** This must be run on a **Linux machine** (Ubuntu/Debian/Fedora/Arch). It requires Linux kernel headers and kernel module loading.
@@ -49,7 +49,7 @@ make test-env
 cd kernel_module && make && cd ..
 ```
 
-This compiles `kprobe_detector.ko`, the kprobe registration monitor. It uses `photon_ring_arch.h` for portable ftrace access across x86_64 and ARM64.
+This compiles `photon_ring.ko`, which uses a detector registry in `main.c` to load detection modules (currently `kprobe_detector`). It uses `photon_ring_arch.h` for portable ftrace access across x86_64 and ARM64.
 
 ### Step 5: Load the Kernel Module
 
@@ -85,7 +85,7 @@ This unloads the module and cleans build artifacts.
 ## Team
 
 - Team Number: Group 32
-- Team Members: Jamie King, Brett Balquist, Kaden Huber, Hart Nurnber, Max Biundo, & Dustin Le
+- Team Members: Jamie King, Brett Balquist, Kaden Huber, Hart Nurnberg, Max Biundo, & Dustin Le
 
 ## License
 

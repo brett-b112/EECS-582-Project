@@ -19,9 +19,13 @@ lksm/
 │       └── architecture.mermaid
 │
 ├── 📁 kernel_module/                    # 🔧 KERNEL SPACE (C)
-│   ├── Makefile                          # Build kernel module
+│   ├── Makefile                          # Build kernel module (photon_ring.ko)
+│   ├── main.c                            # Detector registry & module entry point
 │   ├── photon_ring_arch.h                # Arch translation layer (x86/ARM64)
-│   └── kprobe_detector.c                 # Kprobe registration monitor
+│   ├── include/
+│   │   └── kprobe_detector.h             # Kprobe detector header
+│   └── modules/
+│       └── kprobe_detector.c             # Kprobe registration monitor
 │
 ├── 📁 python_tools/                     # 🐍 USER SPACE (Python)
 │   ├── __init__.py                       # Package init
@@ -59,12 +63,6 @@ lksm/
 ├── 📁 scripts/                          # 🔨 UTILITY SCRIPTS
 │   ├── load_module.sh                    # Build and load kernel module
 │   └── unload_module.sh                  # Unload module and clean build
-│
-├── 📁 data/                             # 💾 DATA (git-ignored)
-│   ├── reports/                          # Generated reports
-│   │   └── .gitkeep
-│   └── samples/                          # Sample data
-│       └── .gitkeep
 │
 └── 📁 venv/                             # 🐍 Virtual env (git-ignored)
 ```

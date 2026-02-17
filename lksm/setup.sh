@@ -222,7 +222,7 @@ echo "------------------------------------------------------"
 if [ -f "$PROJECT_ROOT/kernel_module/Makefile" ]; then
     make -C "$PROJECT_ROOT/kernel_module" clean 2>/dev/null || true
     make -C "$PROJECT_ROOT/kernel_module"
-    echo "✓ Kernel module built: kernel_module/kprobe_detector.ko"
+    echo "✓ Kernel module built: kernel_module/photon_ring.ko"
 else
     echo "WARNING: kernel_module/Makefile not found. Skipping build."
 fi
@@ -236,10 +236,10 @@ echo "To activate the Python environment:"
 echo "  source venv/bin/activate"
 echo ""
 echo "To load the kernel module:"
-echo "  sudo insmod kernel_module/kprobe_detector.ko"
+echo "  sudo insmod kernel_module/photon_ring.ko"
 echo ""
 echo "To unload:"
-echo "  sudo rmmod kprobe_detector"
+echo "  sudo rmmod photon_ring"
 echo ""
 echo "To watch detections (raw):"
 echo "  sudo dmesg -w"

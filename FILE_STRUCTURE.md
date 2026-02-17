@@ -20,9 +20,13 @@ lksm/
 │       └── architecture.mermaid
 │
 ├── kernel_module/                    # Kernel space component (C)
-│   ├── Makefile                      # Kernel module build file
+│   ├── Makefile                      # Kernel module build file (photon_ring.ko)
+│   ├── main.c                        # Detector registry & module entry point
 │   ├── photon_ring_arch.h            # Arch translation layer (x86/ARM64)
-│   └── kprobe_detector.c             # Kprobe registration monitor
+│   ├── include/
+│   │   └── kprobe_detector.h         # Kprobe detector header
+│   └── modules/
+│       └── kprobe_detector.c         # Kprobe registration monitor
 │
 ├── python_tools/                     # User space component (Python)
 │   ├── __init__.py                   # Package initialization
@@ -61,12 +65,6 @@ lksm/
 │   ├── load_module.sh                # Build and load kernel module
 │   └── unload_module.sh              # Unload module and clean build
 │
-├── data/                             # Data directory (git-ignored)
-│   ├── reports/                      # Generated reports
-│   │   └── .gitkeep
-│   └── samples/                      # Sample data for testing
-│       └── .gitkeep
-│
 └── venv/                             # Python virtual environment (git-ignored)
 ```
 
@@ -88,8 +86,10 @@ kernel_module → (procfs/netlink) → python_tools/core → python_tools/analys
 
 ### `/kernel_module/`
 Contains all kernel-space C code:
+- **main.c** - Detector registry and module entry point. Uses a `struct detector` array to initialize/cleanup all detectors automatically
 - **photon_ring_arch.h** - Architecture translation macros for portable ftrace access across x86_64 and ARM64
-- **kprobe_detector.c** - Monitors kprobe registrations via ftrace to detect suspicious hooks (e.g., rootkits probing `kallsyms_lookup_name`)
+- **include/kprobe_detector.h** - Header declaring the kprobe detector init/exit functions
+- **modules/kprobe_detector.c** - Monitors kprobe registrations via ftrace to detect suspicious hooks (e.g., rootkits probing `kallsyms_lookup_name`)
 
 ### `/python_tools/`
 Organized as a proper Python package with subpackages:
@@ -109,23 +109,18 @@ YAML configuration files:
 
 ### `/scripts/`
 Operational scripts:
-- **load_module.sh** - Builds and loads `kprobe_detector.ko`, shows status and logs
+- **load_module.sh** - Builds and loads `photon_ring.ko`, shows status and logs
 - **unload_module.sh** - Unloads module and runs `make clean`
-
-### `/data/`
-Runtime data (git-ignored):
-- **reports/** - Generated reports
-- **samples/** - Test data
 
 ## Build and Run
 
 ### Kernel Module
 ```bash
 cd kernel_module/
-make                              # Builds kprobe_detector.ko
-sudo insmod kprobe_detector.ko    # Loads module
+make                              # Builds photon_ring.ko
+sudo insmod photon_ring.ko        # Loads module
 sudo dmesg | grep 'PHOTON RING'  # Check kernel logs
-sudo rmmod kprobe_detector        # Unloads module
+sudo rmmod photon_ring            # Unloads module
 ```
 
 Or use the scripts:
