@@ -1,7 +1,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include "kprobe_detector.h"
+#include "include/kprobe_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");

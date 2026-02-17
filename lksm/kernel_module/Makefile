@@ -1,118 +1,82 @@
-# LKSM Project Makefile
-# Helps manage environment setup and testing
+# Makefile for Photon Ring kernel module
 
-.PHONY: help setup test-env clean-venv verify-kernel install-dev
+# Module name
+MODULE_NAME := photon_ring
+
+# Object files
+obj-m := $(MODULE_NAME).o
+$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o
+
+# Kernel build directory
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
+# Build directory
+PWD := $(shell pwd)
+
+# Compiler flags - add include path
+ccflags-y := -Wall -Wextra -I$(PWD)/include
 
 # Default target
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+# Clean target
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f modules/*.o modules/.*.cmd modules/*.mod.c modules/.*.d
+	rm -f *.o .*.cmd *.mod.c .*.d
+
+# Install target
+install: all
+	sudo insmod $(MODULE_NAME).ko
+
+# Uninstall target
+uninstall:
+	sudo rmmod $(MODULE_NAME)
+
+# Show kernel logs
+logs:
+	sudo dmesg | tail -50
+
+# Clear kernel logs
+clearlogs:
+	sudo dmesg -c > /dev/null
+
+# Reload target (uninstall, clean, build, install)
+reload: uninstall clean all install
+
+# Status target
+status:
+	@echo "Module status:"
+	@lsmod | grep -E "^Module|$(MODULE_NAME)" || echo "Module not loaded"
+	@echo ""
+	@echo "Module file:"
+	@ls -lh $(MODULE_NAME).ko 2>/dev/null || echo "Module not built"
+
+# Help target
 help:
-	@echo "LKSM Development Environment Management"
-	@echo "========================================"
+	@echo "Photon Ring Kernel Module Build System"
+	@echo "======================================="
+	@echo "Current structure:"
+	@echo "  main.c"
+	@echo "  include/kprobe_detector.h"
+	@echo "  modules/kprobe_detector.c"
 	@echo ""
-	@echo "Available targets:"
-	@echo "  setup          - Run the environment setup script"
-	@echo "  test-env       - Verify environment is correctly configured"
-	@echo "  verify-kernel  - Check kernel configuration"
-	@echo "  install-dev    - Install development dependencies"
-	@echo "  clean-venv     - Remove Python virtual environment"
-	@echo "  freeze         - Generate current Python dependency versions"
-	@echo "  help           - Show this help message"
+	@echo "Targets:"
+	@echo "  all        - Build the kernel module (default)"
+	@echo "  clean      - Remove build artifacts"
+	@echo "  install    - Build and install the module"
+	@echo "  uninstall  - Remove the module from kernel"
+	@echo "  reload     - Uninstall, clean, rebuild, and install"
+	@echo "  status     - Show module load status"
+	@echo "  logs       - Show recent kernel logs"
+	@echo "  clearlogs  - Clear kernel ring buffer"
 	@echo ""
+	@echo "Usage examples:"
+	@echo "  make              # Build module"
+	@echo "  make install      # Install module"
+	@echo "  make logs         # View logs"
+	@echo "  make reload       # Quick reload for testing"
+	@echo "  make uninstall    # Remove module"
 
-# Run the setup script
-setup:
-	@bash setup.sh
-
-# Test environment configuration
-test-env:
-	@echo "Testing environment configuration..."
-	@echo "===================================="
-	@echo ""
-	@echo "Python Environment:"
-	@if [ -d "venv" ]; then \
-		echo "  ✓ Virtual environment exists"; \
-	else \
-		echo "  ✗ Virtual environment not found (run 'make setup')"; \
-		exit 1; \
-	fi
-	@echo ""
-	@echo "System Tools:"
-	@command -v gcc >/dev/null 2>&1 && echo "  ✓ gcc found: $$(gcc --version | head -n1)" || echo "  ✗ gcc not found"
-	@command -v make >/dev/null 2>&1 && echo "  ✓ make found: $$(make --version | head -n1)" || echo "  ✗ make not found"
-	@command -v python3 >/dev/null 2>&1 && echo "  ✓ python3 found: $$(python3 --version)" || echo "  ✗ python3 not found"
-	@echo ""
-	@echo "Kernel Headers:"
-	@if [ -d "/lib/modules/$$(uname -r)/build" ]; then \
-		echo "  ✓ Kernel headers found for $$(uname -r)"; \
-	else \
-		echo "  ✗ Kernel headers not found for $$(uname -r)"; \
-	fi
-	@echo ""
-	@echo "Python Dependencies:"
-	@if [ -f "venv/bin/activate" ]; then \
-		. venv/bin/activate && pip list | head -n10; \
-	else \
-		echo "  ✗ Virtual environment not activated"; \
-	fi
-	@echo ""
-
-# Verify kernel configuration
-verify-kernel:
-	@echo "Verifying kernel configuration..."
-	@echo "=================================="
-	@echo ""
-	@echo "Kernel Version: $$(uname -r)"
-	@echo ""
-	@if [ -f /boot/config-$$(uname -r) ]; then \
-		echo "Checking required kernel options:"; \
-		for opt in CONFIG_MODULES CONFIG_KPROBES CONFIG_DYNAMIC_FTRACE CONFIG_TRACEPOINTS; do \
-			if grep -q "^$$opt=y" /boot/config-$$(uname -r); then \
-				echo "  ✓ $$opt"; \
-			else \
-				echo "  ✗ $$opt (NOT ENABLED)"; \
-			fi; \
-		done; \
-		echo ""; \
-		echo "Ftrace argument access (need at least one):"; \
-		if grep -q "^CONFIG_DYNAMIC_FTRACE_WITH_ARGS=y" /boot/config-$$(uname -r); then \
-			echo "  ✓ CONFIG_DYNAMIC_FTRACE_WITH_ARGS (ARM64)"; \
-		else \
-			echo "  - CONFIG_DYNAMIC_FTRACE_WITH_ARGS not set"; \
-		fi; \
-		if grep -q "^CONFIG_DYNAMIC_FTRACE_WITH_REGS=y" /boot/config-$$(uname -r); then \
-			echo "  ✓ CONFIG_DYNAMIC_FTRACE_WITH_REGS (x86)"; \
-		else \
-			echo "  - CONFIG_DYNAMIC_FTRACE_WITH_REGS not set"; \
-		fi; \
-	else \
-		echo "  ? Kernel config not found at /boot/config-$$(uname -r)"; \
-	fi
-	@echo ""
-
-# Install development dependencies
-install-dev:
-	@if [ ! -d "venv" ]; then \
-		echo "Virtual environment not found. Run 'make setup' first."; \
-		exit 1; \
-	fi
-	@. venv/bin/activate && pip install -r requirements.txt
-	@echo "✓ Development dependencies installed"
-
-# Clean virtual environment
-clean-venv:
-	@echo "Removing virtual environment..."
-	@rm -rf venv
-	@echo "✓ Virtual environment removed"
-
-# Freeze current dependencies
-freeze:
-	@if [ ! -d "venv" ]; then \
-		echo "Virtual environment not found. Run 'make setup' first."; \
-		exit 1; \
-	fi
-	@. venv/bin/activate && pip freeze > requirements-frozen.txt
-	@echo "✓ Current dependencies saved to requirements-frozen.txt"
-	@echo ""
-	@echo "To share this with the team:"
-	@echo "  1. Review requirements-frozen.txt"
-	@echo "  2. Update requirements.txt if needed"
-	@echo "  3. Commit both files to git"
+.PHONY: all clean install uninstall logs clearlogs reload status help

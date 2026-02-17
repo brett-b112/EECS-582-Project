@@ -2,8 +2,8 @@
 #include <linux/kprobes.h>
 #include <linux/ftrace.h>
 #include <linux/string.h>
-#include "photon_ring_arch.h"
-#include "kprobe_detector.h"
+#include "../include/photon_ring_arch.h"
+#include "../include/kprobe_detector.h"
 
 static struct ftrace_ops ops;
 
