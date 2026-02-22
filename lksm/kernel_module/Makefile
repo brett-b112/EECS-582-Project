@@ -5,7 +5,7 @@ MODULE_NAME := photon_ring
 
 # Object files
 obj-m := $(MODULE_NAME).o
-$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o
+$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o comms/event_manager.o comms/crypto.o comms/netlink_ch.o
 
 # Kernel build directory
 KDIR ?= /lib/modules/$(shell uname -r)/build
@@ -13,7 +13,7 @@ KDIR ?= /lib/modules/$(shell uname -r)/build
 # Build directory
 PWD := $(shell pwd)
 
-# Compiler flags - add include path
+# Compiler flags
 ccflags-y := -Wall -Wextra -I$(PWD)/include
 
 # Default target
@@ -23,8 +23,6 @@ all:
 # Clean target
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
-	rm -f modules/*.o modules/.*.cmd modules/*.mod.c modules/.*.d
-	rm -f *.o .*.cmd *.mod.c .*.d
 
 # Install target
 install: all
@@ -42,33 +40,15 @@ logs:
 clearlogs:
 	sudo dmesg -c > /dev/null
 
-# Reload target (uninstall, clean, build, install)
-reload: uninstall clean all install
-
-# Status target
-status:
-	@echo "Module status:"
-	@lsmod | grep -E "^Module|$(MODULE_NAME)" || echo "Module not loaded"
-	@echo ""
-	@echo "Module file:"
-	@ls -lh $(MODULE_NAME).ko 2>/dev/null || echo "Module not built"
-
 # Help target
 help:
 	@echo "Photon Ring Kernel Module Build System"
 	@echo "======================================="
-	@echo "Current structure:"
-	@echo "  main.c"
-	@echo "  include/kprobe_detector.h"
-	@echo "  modules/kprobe_detector.c"
-	@echo ""
 	@echo "Targets:"
 	@echo "  all        - Build the kernel module (default)"
 	@echo "  clean      - Remove build artifacts"
 	@echo "  install    - Build and install the module"
 	@echo "  uninstall  - Remove the module from kernel"
-	@echo "  reload     - Uninstall, clean, rebuild, and install"
-	@echo "  status     - Show module load status"
 	@echo "  logs       - Show recent kernel logs"
 	@echo "  clearlogs  - Clear kernel ring buffer"
 	@echo ""
@@ -76,7 +56,6 @@ help:
 	@echo "  make              # Build module"
 	@echo "  make install      # Install module"
 	@echo "  make logs         # View logs"
-	@echo "  make reload       # Quick reload for testing"
 	@echo "  make uninstall    # Remove module"
 
-.PHONY: all clean install uninstall logs clearlogs reload status help
+.PHONY: all clean install uninstall logs clearlogs help

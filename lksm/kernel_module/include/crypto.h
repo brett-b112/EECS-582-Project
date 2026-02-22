@@ -3,7 +3,8 @@
 
 #include <linux/types.h>
 #include "event_manager.h"
-#include "netlink_channel.h"
+
+struct photon_encrypted_msg;
 
 /* crypto config */
 #define PHOTON_KEY_SIZE 32 // AES-256
@@ -25,6 +26,13 @@ int crypto_layer_init(void);
  * frees crypto transforms and securely wipes keys
  */
 void crypto_layer_exit(void);
+
+/**
+ * photon_has_key - Check if encryption key is set
+ * 
+ * returns: true if key is set, false otherwise
+ */
+bool photon_has_key(void);
 
 /** 
  * photon_encrypt_event - encrypt an event using AES-GCM
@@ -64,7 +72,7 @@ int photon_decrypt_event(struct photon_encrypted_msg *enc_msg,
 int photon_set_encryption_key(const u8 *key);
 
 /**
- * photon_rotate_key - drive and rotate to a new encryption key
+ * photon_rotate_key - derive and rotate to a new encryption key
  * 
  * derives a new key from the master key and current rotation count
  * using HKDF

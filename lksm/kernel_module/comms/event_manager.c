@@ -4,8 +4,8 @@
 #include <linux/ktime.h>
 #include <linux/atomic.h>
 #include "../include/event_manager.h"
-#include "../include/netlink_channel.h"
-#include "../include/crypto_layer.h"
+#include "../include/netlink_ch.h"
+#include "../include/crypto.h"
 
 /* global sequence counter - monotonically increasing */
 static atomic64_t g_sequence_counter = ATOMIC64_INIT(0);
@@ -113,7 +113,7 @@ static int enqueue_event(struct photon_event *event)
 
 out:
     spin_unlock_irqrestore(&buf->lock, flags);
-    put_cpu_var(events_buffers);
+    put_cpu_var(event_buffers);
 
     return ret;
 }

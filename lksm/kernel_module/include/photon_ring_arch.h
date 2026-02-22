@@ -2,7 +2,6 @@
 #define PHOTON_RING_ARCH_H
 
 #include <linux/ftrace.h>
-
 /*
  * Architecture-specific macros for Photon Ring
  * 

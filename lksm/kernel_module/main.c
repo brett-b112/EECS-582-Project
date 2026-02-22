@@ -2,6 +2,8 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include "include/kprobe_detector.h"
+#include "include/crypto.h"
+#include "include/netlink_ch.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -20,10 +22,29 @@ struct detector {
 
 static struct detector detectors[] = {
     {
+        .name = "event_manager",
+        .init = event_manager_init,
+        .exit = event_manager_exit,
+    },
+
+    {
+        .name = "cryptographic_layer",
+        .init = crypto_layer_init,
+        .exit = crypto_layer_exit,
+    },
+
+    {
+        .name = "netlink_channel",
+        .init = netlink_channel_init,
+        .exit = netlink_channel_exit,
+    },
+
+    {
         .name = "kprobe_detector", 
         .init = kprobe_detector_init, 
         .exit = kprobe_detector_exit,
     },
+    /*
     {
         .name = "taskstats_hook_detector", 
         .init = ,taskstats_hook_detector_init
@@ -34,6 +55,7 @@ static struct detector detectors[] = {
         .init = , hooking_audit_detector_init
         .exit = , hooking_audit_detector_exit
     },
+    */
     /* add future detectors here:
      * {
      *     .name = "syscall_detector",

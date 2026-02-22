@@ -5,8 +5,10 @@
 #include <linux/ktime.h>
 #include <crypto/aead.h>
 #include <crypto/gcm.h>
+#include <crypto/hash.h>
 #include "../include/crypto.h"
 #include "../include/event_manager.h"
+#include "../include/netlink_ch.h"
 
 /* crypto state */
 static struct crypto_aead *g_tfm = NULL;

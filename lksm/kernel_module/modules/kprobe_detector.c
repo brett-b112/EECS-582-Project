@@ -1,9 +1,10 @@
 #include <linux/kernel.h>
 #include <linux/kprobes.h>
-#include <linux/ftrace.h>
+// #include <linux/ftrace.h>
 #include <linux/string.h>
 #include "../include/photon_ring_arch.h"
 #include "../include/kprobe_detector.h"
+#include "../include/event_manager.h"
 
 static struct ftrace_ops ops;
 
@@ -11,6 +12,7 @@ static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_
                                          struct ftrace_ops *ops, struct ftrace_regs *fregs)
 {
     struct kprobe *kp;
+    struct kprobe_event_data event_data;
 
     // get first arg (struct kprobe *p) portably via ftrace_regs
     kp = (struct kprobe *)PHOTON_RING_GET_ARG(fregs, 0);
@@ -20,11 +22,25 @@ static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_
         if (kp->symbol_name) {
             printk(KERN_ALERT "[PHOTON RING] Kprobe registered for symbol: %s\n", 
                    kp->symbol_name);
+            
+            // prepare event data
+            memset(&event_data, 0, sizeof(event_data));
+            strncpy(event_data.symbol_name, kp->symbol_name, sizeof(event_data.symbol_name) - 1);
+            event_data.addr = (unsigned long)kp->addr;
+            event_data.flags = 0; // TODO: extract relevant kprobe flags
+            event_data.is_suspicious = 0;
 
             // check for suspicious patterns
             if (strcmp(kp->symbol_name, "kallsyms_lookup_name") == 0) {
                 printk(KERN_ALERT "[PHOTON RING] SUSPICIOUS *** kallsyms_lookup_name probe detected!\n");
+                event_data.is_suspicious = 1;
             }
+
+            // log event to secure channel
+            photon_log_event(PHOTON_EVENT_KPROBE_REG,
+                            PHOTON_DETECTOR_KPROBE,
+                            &event_data,
+                            sizeof(event_data));
         }
     }
 }
