@@ -2,6 +2,8 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include "include/kprobe_detector.h"
+#include "include/taskstats_hook_detector.h"
+#include "include/hooking_audit_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -25,14 +27,14 @@ static struct detector detectors[] = {
         .exit = kprobe_detector_exit,
     },
     {
-        .name = "taskstats_hook_detector", 
-        .init = ,taskstats_hook_detector_init
-        .exit = ,taskstats_hook_detector_exit
+        .name = "taskstats_hook_detector",
+        .init = taskstats_detector_init,
+        .exit = taskstats_detector_exit,
     },
     {
-        .name = "hooking_audit_detector", 
-        .init = , hooking_audit_detector_init
-        .exit = , hooking_audit_detector_exit
+        .name = "hooking_audit_detector",
+        .init = audit_detector_init,
+        .exit = audit_detector_exit,
     },
     /* add future detectors here:
      * {
@@ -77,7 +79,7 @@ static int __init photon_ring_init(void)
     }
 
     printk(KERN_INFO "========================================\n");
-    printk(KERN_INFO "[PHOTON RING] All detectors active (%d/%d)\n",
+    printk(KERN_INFO "[PHOTON RING] All detectors active (%d/%zu)\n",
            active_detectors, NUM_DETECTORS);
     printk(KERN_INFO "[PHOTON RING] System is now monitoring...\n");
     printk(KERN_INFO "========================================\n");

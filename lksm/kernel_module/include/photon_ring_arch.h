@@ -4,19 +4,33 @@
 #include <linux/ftrace.h>
 
 /*
- * Architecture-specific macros for Photon Ring
- * 
- * This file provides portability across different architectures (x86_64, ARM, etc.)
+ * Architecture-portable macros for Photon Ring
+ *
+ * Modern kernels (6.x+) with CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS provide
+ * ftrace_regs_get_argument() which works across all architectures.
+ * We use that when available, falling back to pt_regs for older kernels.
  */
 
-#if defined(__x86_64__) || defined(__i386__)
+#ifdef CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS
+#include <linux/ftrace_regs.h>
+
+/* Use the portable ftrace_regs API (works on x86_64, ARM64, etc.) */
+#define PHOTON_RING_GET_ARG(fregs, n) \
+    ftrace_regs_get_argument(fregs, n)
+
 /*
- * x86/x86_64 architecture
+ * With FTRACE_WITH_ARGS, arguments are saved automatically.
+ * No need for FTRACE_OPS_FL_SAVE_REGS.
  */
+#define PHOTON_RING_FTRACE_FLAGS (FTRACE_OPS_FL_RECURSION)
 
+#else /* !CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS */
+
+/* Fallback for older kernels that use pt_regs */
 #include <asm/ptrace.h>
 
-/* Get function argument from ftrace_regs */
+#if defined(__x86_64__) || defined(__i386__)
+
 #define PHOTON_RING_GET_ARG(fregs, n) ({ \
     unsigned long _val; \
     struct pt_regs *_regs = ftrace_get_regs(fregs); \
@@ -37,13 +51,7 @@
 })
 
 #elif defined(__aarch64__) || defined(__arm__)
-/*
- * ARM/ARM64 architecture
- */
 
-#include <asm/ptrace.h>
-
-/* Get function argument from ftrace_regs */
 #define PHOTON_RING_GET_ARG(fregs, n) ({ \
     unsigned long _val; \
     struct pt_regs *_regs = ftrace_get_regs(fregs); \
@@ -56,26 +64,12 @@
 })
 
 #else
-/*
- * Generic fallback for other architectures
- */
-
-#warning "Unknown architecture, using generic ftrace argument access"
-
-#define PHOTON_RING_GET_ARG(fregs, n) ({ \
-    unsigned long _val = 0; \
-    struct pt_regs *_regs = ftrace_get_regs(fregs); \
-    if (_regs) { \
-        /* This is architecture-specific and may not work */ \
-        /* You'll need to implement this for your architecture */ \
-        _val = 0; \
-    } \
-    _val; \
-})
-
+#warning "Unknown architecture and no FTRACE_WITH_ARGS support"
+#define PHOTON_RING_GET_ARG(fregs, n) (0UL)
 #endif
 
-/* Ftrace flags configuration */
 #define PHOTON_RING_FTRACE_FLAGS (FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION)
+
+#endif /* CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS */
 
 #endif /* PHOTON_RING_ARCH_H */

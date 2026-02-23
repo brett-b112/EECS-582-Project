@@ -92,17 +92,18 @@ static void print_statistics(void)
 // ============================================================================
 // Helper function to set up ftrace hook
 // ============================================================================
-static int setup_ftrace_hook(struct ftrace_ops *ops, 
+static int setup_ftrace_hook(struct ftrace_ops *ops,
                              ftrace_func_t func,
                              const char *symbol_name)
 {
-    
+
+    return 0;
 }
 
 // ============================================================================
 // Module initialization
 // ============================================================================
-static int __init audit_detector_init(void)
+int __init audit_detector_init(void)
 {
     int ret;
     int hooks_installed = 0;
@@ -159,7 +160,7 @@ static int __init audit_detector_init(void)
 // ============================================================================
 // Module cleanup
 // ============================================================================
-static void __exit audit_detector_exit(void)
+void __exit audit_detector_exit(void)
 {
     
 }

@@ -75,7 +75,7 @@ static int setup_ftrace_hook(struct ftrace_ops *ops,
 // ============================================================================
 // Module initialization
 // ============================================================================
-static int __init taskstats_detector_init(void)
+int __init taskstats_detector_init(void)
 {
     int ret;
     int hooks_installed = 0;
@@ -124,7 +124,7 @@ static int __init taskstats_detector_init(void)
 // ============================================================================
 // Module cleanup
 // ============================================================================
-static void __exit taskstats_detector_exit(void)
+void __exit taskstats_detector_exit(void)
 {
     
 }
