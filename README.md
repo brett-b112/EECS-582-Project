@@ -1,86 +1,146 @@
 # PHOTON RING
 <img width="500" height="500" alt="photon_ring_logo" src="https://github.com/user-attachments/assets/4c139850-ec36-4381-98c4-fa9b5222bb18" />
 
+A kernel module that detects rootkit-style activity (kprobe hooking, audit evasion, taskstats manipulation) and a web dashboard that displays detections in real time.
 
-A loadable kernel module and Python toolkit for real-time Linux security monitoring.
+## Project Structure
 
-## Overview
+```
+lksm/
+├── kernel_module/          # The kernel module (C)
+│   ├── Makefile
+│   ├── main.c              # Entry point, loads all detectors
+│   ├── include/             # Header files
+│   └── modules/             # Detector implementations
+│       ├── kprobe_detector.c
+│       ├── hooking_audit_detector.c
+│       └── taskstats_hook_detector.c
+├── python_tools/           # Dashboard and event reader (Python)
+│   ├── main.py             # CLI entry point
+│   ├── core/               # Event parsing from dmesg
+│   └── output/             # Flask web dashboard + JSON logger
+├── config/                 # Default configuration files
+├── data/logs/              # Event logs (created at runtime)
+└── requirements.txt        # Python dependencies
+```
 
-LKSM has two intertwined components:
+## Prerequisites
 
-1. **Kernel Module** (C) — a loadable kernel module (`photon_ring.ko`) that hooks into the Linux kernel via ftrace to monitor kprobe registrations and detect suspicious activity. Uses a modular detector registry so new detectors can be added easily.
-2. **Python Tools** — a user-space Python suite for analysis and monitoring
+- Ubuntu/Debian Linux
+- Python 3.8+
 
-**Prerequisite:** This must be run on a **Linux machine** (Ubuntu/Debian/Fedora/Arch). It requires Linux kernel headers and kernel module loading.
+Install the required system packages:
 
-## Quick Start
+```bash
+sudo apt install build-essential linux-headers-$(uname -r) python3-venv
+```
 
-### Step 1: Environment Setup
+## Setup
 
 ```bash
 cd lksm
-bash setup.sh
-```
 
-This installs system packages (gcc, make, kernel headers, Python, etc.), verifies kernel config has required features enabled, creates a Python virtual environment, and installs all Python dependencies.
-
-### Step 2: Activate the Virtual Environment
-
-```bash
+# Create a Python virtual environment and install dependencies
+python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-You need to do this every time you open a new terminal.
-
-### Step 3: Verify Everything
+## Building and Loading the Kernel Module
 
 ```bash
-python check_versions.py
-make test-env
+cd lksm/kernel_module
+
+# Build
+make
+
+# Load the module
+sudo insmod photon_ring.ko
+
+# Verify it loaded
+lsmod | grep photon_ring
+sudo dmesg | tail -10
 ```
 
-`check_versions.py` checks Python version (3.8–3.12), GCC (9+), kernel version (4.15+), kernel headers, virtual env status, and that all Python packages match `requirements.txt`.
+You should see output like:
 
-`make test-env` does a similar environment check via the Makefile.
+```
+[PHOTON RING] Initializing detection system
+[PHOTON RING] Starting detector: kprobe_detector
+[PHOTON RING] successfully hooked register_kprobe
+[PHOTON RING] All detectors active (3/3)
+[PHOTON RING] System is now monitoring...
+```
 
-### Step 4: Build the Kernel Module
+### Other Makefile Commands
+
+| Command          | What it does                          |
+|------------------|---------------------------------------|
+| `make`           | Build the module                      |
+| `make clean`     | Remove build artifacts                |
+| `make install`   | Build and load the module             |
+| `make uninstall` | Unload the module                     |
+| `make reload`    | Unload, clean, rebuild, and reload    |
+| `make logs`      | Show recent kernel logs               |
+| `make status`    | Check if the module is loaded         |
+
+## Running the Dashboard
+
+The dashboard reads `[PHOTON RING]` messages from dmesg and shows them in a live web page.
+
+From the `lksm/` directory:
 
 ```bash
-cd kernel_module && make && cd ..
+sudo venv/bin/python -m python_tools.main --mode dashboard
 ```
 
-This compiles `photon_ring.ko`, which uses a detector registry in `main.c` to load detection modules (currently `kprobe_detector`). It uses `photon_ring_arch.h` for portable ftrace access across x86_64 and ARM64.
+Then open **http://127.0.0.1:5000** in your browser.
 
-### Step 5: Load the Kernel Module
+> **Why sudo?** Modern kernels restrict `dmesg` to root. You must use the full
+> `venv/bin/python` path because `sudo` does not inherit your virtual environment.
+
+### Headless Mode (no web UI, just logging)
 
 ```bash
-bash scripts/load_module.sh
+sudo venv/bin/python -m python_tools.main --mode daemon
 ```
 
-This builds, loads, and shows module status and kernel logs automatically.
+Events are logged to `data/logs/lksm_events_YYYY-MM-DD.jsonl`.
 
-### Stopping / Unloading
+## Unloading the Module
 
 ```bash
-bash scripts/unload_module.sh
+sudo rmmod photon_ring
 ```
 
-This unloads the module and cleans build artifacts.
+## Troubleshooting
 
-## Version Checks
+**No events on the dashboard** - Make sure the kernel module is loaded and you ran the dashboard with `sudo`.
 
-| Method | Command | What it checks |
-|--------|---------|----------------|
-| Python script | `python check_versions.py` | Python version, venv active, GCC version, kernel version, kernel headers, Python package versions |
-| Makefile | `make test-env` | venv exists, gcc/make/python3 installed, kernel headers found, lists installed pip packages |
-| Makefile | `make verify-kernel` | Checks specific kernel config options (CONFIG_MODULES, CONFIG_KPROBES, etc.) |
+**"insmod: ERROR: could not insert module ... Invalid parameters"** - Your kernel may be missing ftrace support. Check with:
 
-## Documentation
+```bash
+grep DYNAMIC_FTRACE /boot/config-$(uname -r)
+```
 
-- [Architecture](lksm/docs/Architecture/LKSM_Architecture_Document.pdf)
-- [Dependency Management](lksm/docs/DEPENDENCY_MANAGEMENT.md)
-- [Kernel Dependencies](lksm/docs/KERNEL_DEPENDENCIES.md)
-- [Quick Reference](lksm/docs/QUICK_START.md)
+You need `CONFIG_DYNAMIC_FTRACE_WITH_ARGS=y` (ARM64) or `CONFIG_DYNAMIC_FTRACE_WITH_REGS=y` (x86).
+
+**"kernel headers not found" during make** - Install them:
+
+```bash
+sudo apt install linux-headers-$(uname -r)
+```
+
+## How It Works
+
+1. The kernel module hooks into kernel functions using ftrace and logs suspicious activity via `printk` to the kernel ring buffer (dmesg).
+2. The Python dashboard polls `dmesg` for `[PHOTON RING]` messages, parses them into structured events, and serves them through a Flask web UI that auto-refreshes every 2 seconds.
+
+### Current Detectors
+
+- **kprobe_detector** - Monitors kprobe registrations. Flags suspicious probes (e.g. `kallsyms_lookup_name`).
+- **taskstats_hook_detector** - Monitors taskstats, generic netlink, and process connector hooks.
+- **hooking_audit_detector** - Monitors audit subsystem hooks (netlink_unicast, audit_log_*, syscall audit).
 
 ## Team
 
