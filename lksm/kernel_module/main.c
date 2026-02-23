@@ -4,6 +4,7 @@
 #include "include/kprobe_detector.h"
 #include "include/taskstats_hook_detector.h"
 #include "include/hooking_audit_detector.h"
+#include "include/become_root_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -36,13 +37,11 @@ static struct detector detectors[] = {
         .init = audit_detector_init,
         .exit = audit_detector_exit,
     },
-    /* add future detectors here:
-     * {
-     *     .name = "syscall_detector",
-     *     .init = syscall_detector_init,
-     *     .exit = syscall_detector_exit,
-     * },
-     */
+    {
+        .name = "become_root_detector",
+        .init = become_root_detector_init,
+        .exit = become_root_detector_exit,
+    },
 };
 
 #define NUM_DETECTORS (sizeof(detectors) / sizeof(detectors[0]))
