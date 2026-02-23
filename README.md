@@ -59,7 +59,7 @@ sudo insmod photon_ring.ko
 
 # Verify it loaded
 lsmod | grep photon_ring
-sudo dmesg | tail -10
+sudo dmesg | "PHOTON RING"
 ```
 
 You should see output like:
