@@ -295,10 +295,9 @@ int photon_log_event(u32 event_type, u32 detector_id,
         }
     }
 
-    // periodically flush buffer (every 3 events for now, will adjust as needed)
-    if (event.sequence_num % 3 == 0) {
-        flush_all_buffers();
-    }
+    // flush immediately so every event reaches userspace without waiting
+    // for a batch threshold — important for a security detection system
+    flush_all_buffers();
 
     return 0;
 }

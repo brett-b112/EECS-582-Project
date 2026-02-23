@@ -22,24 +22,6 @@ struct detector {
 
 static struct detector detectors[] = {
     {
-        .name = "event_manager",
-        .init = event_manager_init,
-        .exit = event_manager_exit,
-    },
-
-    {
-        .name = "cryptographic_layer",
-        .init = crypto_layer_init,
-        .exit = crypto_layer_exit,
-    },
-
-    {
-        .name = "netlink_channel",
-        .init = netlink_channel_init,
-        .exit = netlink_channel_exit,
-    },
-
-    {
         .name = "kprobe_detector", 
         .init = kprobe_detector_init, 
         .exit = kprobe_detector_exit,
@@ -79,6 +61,18 @@ static int __init photon_ring_init(void)
     printk(KERN_INFO "[PHOTON RING] Version: %s\n", THIS_MODULE->version);
     printk(KERN_INFO "========================================\n");
 
+    // initialize event manager
+    printk(KERN_INFO "[PHOTON RING] Initializing infrastructure...\n");
+    ret = event_manager_init();
+    if (ret) {
+        printk(KERN_ERR "[PHOTON RING] Failed to initialize event manager: %d\n", ret);
+        return ret;
+    }
+
+    printk(KERN_INFO "[PHOTON RING] Infrastructure initialized\n");
+    printk(KERN_INFO "[PHOTON RING] Waiting for key exchange from userspace...\n");
+    printk(KERN_INFO "[PHOTON RING] Events will be buffered until encryption is active\n");
+
     // initialize all detectors
     for (i = 0; i < NUM_DETECTORS; i++) {
         printk(KERN_INFO "[PHOTON RING] Starting detector: %s\n", 
@@ -113,6 +107,8 @@ cleanup:
                detectors[i].name);
         detectors[i].exit();
     }
+
+    event_manager_exit();
     
     printk(KERN_ERR "[PHOTON RING] Initialization failed\n");
     return ret;
@@ -132,6 +128,8 @@ static void __exit photon_ring_exit(void)
                detectors[i].name);
         detectors[i].exit();
     }
+
+    event_manager_exit();
 
     printk(KERN_INFO "========================================\n");
     printk(KERN_INFO "[PHOTON RING] All detectors stopped\n");

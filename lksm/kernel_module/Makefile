@@ -5,8 +5,7 @@ MODULE_NAME := photon_ring
 
 # Object files
 obj-m := $(MODULE_NAME).o
-$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o comms/event_manager.o comms/crypto.o comms/netlink_ch.o
-
+$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o comms/event_manager.o comms/crypto.o comms/cdev_ch.o
 # Kernel build directory
 KDIR ?= /lib/modules/$(shell uname -r)/build
 

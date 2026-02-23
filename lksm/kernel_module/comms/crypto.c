@@ -18,6 +18,8 @@ static u8 g_session_key[PHOTON_KEY_SIZE];        // current session key
 static bool g_key_set = false;
 static atomic64_t g_rotation_counter = ATOMIC64_INIT(0);
 static DEFINE_MUTEX(crypto_mutex);
+/* separate spinlock for encrypt/decrypt — called from atomic (ftrace) context */
+static DEFINE_SPINLOCK(crypto_enc_lock);
 
 /* stats */
 static atomic64_t g_encryptions = ATOMIC64_INIT(0);
@@ -394,6 +396,7 @@ int photon_encrypt_event(struct photon_event *event,
     u8 *ciphertext = NULL;
     size_t plaintext_len;
     size_t ciphertext_len;
+    unsigned long flags;
     int ret;
     
     ret = verify_crypto_transform();
@@ -403,9 +406,11 @@ int photon_encrypt_event(struct photon_event *event,
     plaintext_len = sizeof(struct photon_event);
     ciphertext_len = plaintext_len + PHOTON_TAG_SIZE;
     
-    // allocate buffers
-    plaintext = kmalloc(plaintext_len, GFP_KERNEL);
-    ciphertext = kmalloc(ciphertext_len, GFP_KERNEL);
+    // GFP_ATOMIC: may be called from atomic context via the ftrace hook path:
+    // hook_kprobe_register -> photon_log_event -> flush_all_buffers -> here.
+    // GFP_KERNEL would sleep and cause a kernel BUG in atomic context.
+    plaintext = kmalloc(plaintext_len, GFP_ATOMIC);
+    ciphertext = kmalloc(ciphertext_len, GFP_ATOMIC);
     if (!plaintext || !ciphertext) {
         ret = -ENOMEM;
         goto out;
@@ -417,8 +422,8 @@ int photon_encrypt_event(struct photon_event *event,
     // generate random IV
     photon_get_random_iv(enc_msg->iv);
     
-    // allocate AEAD request
-    req = aead_request_alloc(g_tfm, GFP_KERNEL);
+    // GFP_ATOMIC for the same reason
+    req = aead_request_alloc(g_tfm, GFP_ATOMIC);
     if (!req) {
         ret = -ENOMEM;
         goto out;
@@ -432,10 +437,11 @@ int photon_encrypt_event(struct photon_event *event,
     aead_request_set_ad(req, 0);  // no additional authenticated data
     aead_request_set_crypt(req, &sg_in, &sg_out, plaintext_len, enc_msg->iv);
     
-    // perform encryption
-    mutex_lock(&crypto_mutex);
+    // spin_lock_irqsave instead of mutex_lock: mutexes can sleep,
+    // which is forbidden in atomic/interrupt context
+    spin_lock_irqsave(&crypto_enc_lock, flags);
     ret = crypto_aead_encrypt(req);
-    mutex_unlock(&crypto_mutex);
+    spin_unlock_irqrestore(&crypto_enc_lock, flags);
     
     if (ret) {
         printk(KERN_ERR "[PHOTON RING] Encryption failed: %d\n", ret);
