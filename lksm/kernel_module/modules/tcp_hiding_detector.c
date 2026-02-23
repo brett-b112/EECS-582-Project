@@ -31,9 +31,6 @@ static unsigned long tcp_hiding_addrs[NUM_TCP_TARGETS];
 
 static struct ftrace_ops ops_ftrace_filter;
 
-// ============================================================================
-// Helper: use a temporary kprobe to resolve an unexported symbol address
-// ============================================================================
 static unsigned long lookup_name(const char *name)
 {
     struct kprobe kp = { .symbol_name = name };
@@ -47,14 +44,6 @@ static unsigned long lookup_name(const char *name)
     return addr;
 }
 
-// ============================================================================
-// Hook on ftrace_set_filter_ip
-//
-// Signature: int ftrace_set_filter_ip(struct ftrace_ops *ops,
-//                                     unsigned long ip,
-//                                     int remove, int reset)
-// args: 0=ops, 1=ip, 2=remove, 3=reset
-// ============================================================================
 static notrace void hook_ftrace_set_filter_ip(unsigned long ip,
                                                unsigned long parent_ip,
                                                struct ftrace_ops *ops,
@@ -81,9 +70,6 @@ static notrace void hook_ftrace_set_filter_ip(unsigned long ip,
     }
 }
 
-// ============================================================================
-// Module initialization
-// ============================================================================
 int __init tcp_hiding_detector_init(void)
 {
     unsigned long filter_ip_addr;
@@ -141,9 +127,6 @@ int __init tcp_hiding_detector_init(void)
     return 0;
 }
 
-// ============================================================================
-// Module cleanup
-// ============================================================================
 void __exit tcp_hiding_detector_exit(void)
 {
     unsigned long filter_ip_addr = (unsigned long)ftrace_set_filter_ip;
