@@ -4,6 +4,7 @@
 #include "include/kprobe_detector.h"
 #include "include/taskstats_hook_detector.h"
 #include "include/hooking_audit_detector.h"
+#include "include/tcp_hiding_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -35,6 +36,11 @@ static struct detector detectors[] = {
         .name = "hooking_audit_detector",
         .init = audit_detector_init,
         .exit = audit_detector_exit,
+    },
+    {
+        .name = "tcp_hiding_detector",
+        .init = tcp_hiding_detector_init,
+        .exit = tcp_hiding_detector_exit,
     },
     /* add future detectors here:
      * {
