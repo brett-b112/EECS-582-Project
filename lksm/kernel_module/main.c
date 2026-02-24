@@ -34,6 +34,12 @@ static struct detector detectors[] = {
         .init = , hooking_audit_detector_init
         .exit = , hooking_audit_detector_exit
     },
+      {
+        .name = "hiding_stat", 
+        .init = , hiding_stat_init
+        .exit = , hiding_stat_exit
+    },
+
     /* add future detectors here:
      * {
      *     .name = "syscall_detector",

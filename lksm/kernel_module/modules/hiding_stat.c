@@ -1,8 +1,9 @@
+// photon_ring_hiding_stat.c
+// detects monitor tampering and will log whenever this behavior is intercepted
 #include <linux/kernel.h>
 #include <linux/kprobes.h>
 #include <linux/ftrace.h>
 #include <linux/string.h>
-
 #include ".../include/hiding_stat.h"
 #include "../include/kprobe_detector.h"
 
