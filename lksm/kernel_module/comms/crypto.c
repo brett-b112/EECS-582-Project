@@ -8,7 +8,7 @@
 #include <crypto/hash.h>
 #include "../include/crypto.h"
 #include "../include/event_manager.h"
-#include "../include/netlink_ch.h"
+#include "../include/cdev_ch.h"
 
 /* crypto state */
 static struct crypto_aead *g_tfm = NULL;

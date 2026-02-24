@@ -25,7 +25,7 @@
 #include <linux/sched.h>
 #include <linux/capability.h>
 #include <linux/ioctl.h>
-#include "cdev_ch.h"
+#include "../include/cdev_ch.h"
 #include "../include/crypto.h"
 
 

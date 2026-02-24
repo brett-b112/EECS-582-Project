@@ -3,7 +3,7 @@
 #include <linux/init.h>
 #include "include/kprobe_detector.h"
 #include "include/crypto.h"
-#include "include/netlink_ch.h"
+#include "include/cdev_ch.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");

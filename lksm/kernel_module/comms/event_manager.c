@@ -4,7 +4,7 @@
 #include <linux/ktime.h>
 #include <linux/atomic.h>
 #include "../include/event_manager.h"
-#include "../include/netlink_ch.h"
+#include "../include/cdev_ch.h"
 #include "../include/crypto.h"
 
 /* global sequence counter - monotonically increasing */
@@ -197,10 +197,10 @@ int event_manager_init(void)
         goto cleanup_buffers;
     }
 
-    // initialize netlink channel
-    ret = netlink_channel_init();
+    // initialize cdev channel
+    ret = cdev_channel_init();
     if (ret) {
-        printk(KERN_ERR "[PHOTON RING] Failed to init netlink: %d\n", ret);
+        printk(KERN_ERR "[PHOTON RING] Failed to init cdev: %d\n", ret);
         goto cleanup_crypto;
     }
 
@@ -242,8 +242,8 @@ void event_manager_exit(void)
     printk(KERN_INFO "[PHOTON RING]   Send failures: %lld\n", 
            atomic64_read(&g_stats.send_failures));
     
-    // cleanup netlink
-    netlink_channel_exit();
+    // cleanup cdev
+    cdev_channel_exit();
     
     // cleanup crypto
     crypto_layer_exit();
