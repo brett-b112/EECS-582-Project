@@ -28,7 +28,8 @@ lksm/
 └── requirements.txt           # Python dependencies
 ```
 
-## Prerequisites
+## Prerequisites 
+## MUST BE INSTALLED ON YOUR MACHINE
 
 - Ubuntu/Debian Linux
 - Python 3.8+
