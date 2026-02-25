@@ -84,29 +84,6 @@ class KprobeReaderModule(MonitorModule):
 
 def _parse_message(msg: str):
     """Return (severity, type, data-dict) from a PHOTON RING message body."""
-    # BPF-specific SUSPICIOUS check (must come before generic SUSPICIOUS catch-all)
-    bpf_hook_match = re.search(
-        r"SUSPICIOUS \*\*\* ftrace hook on BPF function:\s*(\S+)\s*\(addr\s+([0-9a-fA-F]+)\)",
-        msg,
-    )
-    if bpf_hook_match:
-        return "high", "suspicious_bpf_hook", {
-            "message": msg,
-            "symbol": bpf_hook_match.group(1),
-            "address": bpf_hook_match.group(2),
-        }
-
-    ftrace_filter_match = re.search(
-        r"ftrace filter registered for:\s*(\S+)\s*\(addr\s+([0-9a-fA-F]+)\)",
-        msg,
-    )
-    if ftrace_filter_match:
-        return "info", "ftrace_filter_registered", {
-            "message": msg,
-            "symbol": ftrace_filter_match.group(1),
-            "address": ftrace_filter_match.group(2),
-        }
-
     if "SUSPICIOUS" in msg:
         # e.g. "SUSPICIOUS *** kallsyms_lookup_name probe detected!"
         return "high", "suspicious_probe", {"message": msg}
