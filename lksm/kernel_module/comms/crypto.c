@@ -449,7 +449,6 @@ int photon_encrypt_event(struct photon_event *event,
     }
     
     // fill in encrypted message structure
-    enc_msg->sequence_num = event->sequence_num;
     enc_msg->encrypted_len = plaintext_len;
     
     // copy ciphertext (without tag)

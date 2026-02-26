@@ -40,7 +40,6 @@
  * userspace reads the 4-byte header first, then reads exactly frame_len bytes.
  */
 struct photon_encrypted_msg {
-    u64 sequence_num;       /* plaintext — used by userspace for gap detection */
     u64 rotation_num;       /* which HKDF session key encrypted this frame     */
     u8  iv[12];             /* AES-GCM initialisation vector                   */
     u16 encrypted_len;      /* byte length of encrypted_data[]                 */

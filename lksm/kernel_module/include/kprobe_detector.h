@@ -3,6 +3,14 @@
 
 #include <linux/ftrace.h>
 
+/* kprobe-specific event data */
+struct kprobe_event_data {
+    char symbol_name[64];
+    unsigned long addr;
+    u32 flags;
+    u8 is_suspicious;
+} __attribute__((packed));
+
 /**
  * kprobe_detector_init - Initialize the kprobe detector
  * 

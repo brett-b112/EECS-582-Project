@@ -5,6 +5,7 @@
 #include "../include/photon_ring_arch.h"
 #include "../include/kprobe_detector.h"
 #include "../include/event_manager.h"
+#include "../include/kprobe_detector.h"
 
 static struct ftrace_ops ops;
 

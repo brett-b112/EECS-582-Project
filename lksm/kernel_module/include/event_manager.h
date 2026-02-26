@@ -35,13 +35,6 @@ struct photon_event {
     u8  data[PHOTON_MAX_EVENT_DATA]; // variable payload
 } __attribute__((packed));
 
-/* kprobe-specific event data */
-struct kprobe_event_data {
-    char symbol_name[64];
-    unsigned long addr;
-    u32 flags;
-    u8 is_suspicious;
-} __attribute__((packed));
 
 /**
  * event_manager_init - Initialize the event management subsystem
