@@ -28,6 +28,7 @@
 #include <linux/string.h>
 #include <linux/kallsyms.h>
 #include <linux/atomic.h>
+#include <linux/sched.h>
 #include "../include/photon_ring_arch.h"
 #include "../include/bpf_hook_detector.h"
 
@@ -104,14 +105,14 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
     /* check against BPF watchlist */
     for (i = 0; i < BPF_WATCHLIST_SIZE; i++) {
         if (strcmp(buf, bpf_watchlist[i]) == 0) {
-            printk(KERN_ALERT "[PHOTON RING] SUSPICIOUS *** ftrace hook on BPF function: %s (addr %lx)\n",
-                   buf, target_ip);
+            printk(KERN_ALERT "[PHOTON RING] SUSPICIOUS *** ftrace hook on BPF function: %s (addr %lx) by process '%s' (PID %d)\n",
+                   buf, target_ip, current->comm, current->pid);
             return 0;
         }
     }
 
-    printk(KERN_INFO "[PHOTON RING] ftrace filter registered for: %s (addr %lx)\n",
-           buf, target_ip);
+    printk(KERN_INFO "[PHOTON RING] ftrace filter registered for: %s (addr %lx) by process '%s' (PID %d)\n",
+           buf, target_ip, current->comm, current->pid);
 
     return 0;
 }
