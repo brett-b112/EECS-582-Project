@@ -39,8 +39,30 @@ def wait_for_kibana(timeout: int = 120) -> None:
     sys.exit(1)
 
 
+def delete_existing_data_view() -> None:
+    """Find and delete an existing 'LKSM Events' data view, if any."""
+    headers = {"kbn-xsrf": "true"}
+    resp = requests.get(
+        f"{KIBANA_URL}/api/data_views",
+        headers=headers,
+    )
+    if not resp.ok:
+        return
+    for dv in resp.json().get("data_view", []):
+        if dv.get("name") == "LKSM Events" or dv.get("title") == "lksm_events":
+            dv_id = dv["id"]
+            print(f"Deleting existing data view '{dv.get('name')}' (id={dv_id}) ...")
+            requests.delete(
+                f"{KIBANA_URL}/api/data_views/data_view/{dv_id}",
+                headers=headers,
+            )
+            print("Deleted.")
+            return
+
+
 def create_data_view() -> None:
-    """Create the LKSM Events data view (idempotent — 409 means it exists)."""
+    """Create the LKSM Events data view, replacing any existing one."""
+    delete_existing_data_view()
     resp = requests.post(
         f"{KIBANA_URL}/api/data_views/data_view",
         json=DATA_VIEW_BODY,

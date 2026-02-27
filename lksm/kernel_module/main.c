@@ -5,6 +5,7 @@
 #include "include/taskstats_hook_detector.h"
 #include "include/hooking_audit_detector.h"
 #include "include/become_root_detector.h"
+#include "include/bpf_hook_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -41,6 +42,11 @@ static struct detector detectors[] = {
         .name = "become_root_detector",
         .init = become_root_detector_init,
         .exit = become_root_detector_exit,
+    },
+    {
+        .name = "bpf_hook_detector",
+        .init = bpf_hook_detector_init,
+        .exit = bpf_hook_detector_exit,
     },
 };
 

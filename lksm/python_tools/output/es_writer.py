@@ -35,6 +35,10 @@ INDEX_MAPPING = {
                     "symbol": {"type": "keyword"},
                     "pid": {"type": "integer"},
                     "process_name": {"type": "keyword"},
+                    "detector": {"type": "keyword"},
+                    "target_symbol": {"type": "keyword"},
+                    "target_addr": {"type": "keyword"},
+                    "hook_mechanism": {"type": "keyword"},
                 }
             },
         }
