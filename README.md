@@ -211,6 +211,8 @@ sudo apt install linux-headers-$(uname -r)
 - Team Number: Group 32
 - Team Members: Jamie King, Brett Balquist, Kaden Huber, Hart Nurnberg, Max Biundo, & Dustin Le
 
+### Link to project board: https://github.com/users/brett-b112/projects/1
+
 ## License
 
 MIT
