@@ -5,7 +5,11 @@ MODULE_NAME := photon_ring
 
 # Object files
 obj-m := $(MODULE_NAME).o
+<<<<<<< HEAD
 $(MODULE_NAME)-objs := main.o modules/kprobe_detector.o modules/hooking_audit_detector.o modules/taskstats_hook_detector.o modules/tcp_hiding_detector.o
+=======
+$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o modules/hooking_audit_detector.o modules/taskstats_hook_detector.o modules/become_root_detector.o modules/bpf_hook_detector.o
+>>>>>>> main
 
 # Kernel build directory
 KDIR ?= /lib/modules/$(shell uname -r)/build
