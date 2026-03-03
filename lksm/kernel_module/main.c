@@ -4,6 +4,7 @@
 #include "include/kprobe_detector.h"
 #include "include/taskstats_hook_detector.h"
 #include "include/hooking_audit_detector.h"
+#include "include/tcp_hiding_detector.h"
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
 
@@ -37,6 +38,11 @@ static struct detector detectors[] = {
         .name = "hooking_audit_detector",
         .init = audit_detector_init,
         .exit = audit_detector_exit,
+    },
+    {
+        .name = "tcp_hiding_detector",
+        .init = tcp_hiding_detector_init,
+        .exit = tcp_hiding_detector_exit,
     },
     {
         .name = "become_root_detector",
