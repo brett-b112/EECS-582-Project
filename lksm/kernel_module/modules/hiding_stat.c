@@ -1,170 +1,190 @@
-// photon_ring_hiding_stat.c
-// detects monitor tampering and will log whenever this behavior is intercepted
-#include <linux/kernel.h>
-#include <linux/kprobes.h>
-#include <linux/ftrace.h>
-#include <linux/string.h>
-#include ".../include/hiding_stat.h"
-#include "../include/kprobe_detector.h"
+// hook_stat_hiding.c
+// Behavioral detector for stat-based hiding techniques
 
-#define HIDDEN_STRING "secret"
-#define HIDDEN_PID 1337
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/ftrace.h>
+#include <linux/uaccess.h>
+#include <linux/ktime.h>
+#include <linux/sched.h>
+#include <linux/slab.h>
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Dustin");
-MODULE_DESCRIPTION("Detect hiding stat behavior");
+MODULE_DESCRIPTION("Detect stat-family syscall hiding behavior");
 MODULE_VERSION("1.0");
 
-static struct ftrace_ops ops_newfstatat;
-static struct ftrace_ops ops_statx;
-static struct ftrace_ops ops_getpriority;
-
-/* Hook tracking */
-static int hooks_installed = 0;
+#define MAX_TRACKED_PIDS 1024
+#define FAILURE_THRESHOLD 10
 
 /* ============================= */
-/* newfstatat HOOK               */
+/* Per-PID Failure Tracking      */
 /* ============================= */
 
-static notrace void hook_newfstatat(unsigned long ip, unsigned long parent_ip,
+struct pid_stat_tracker {
+    pid_t pid;
+    int failure_count;
+};
+
+static struct pid_stat_tracker pid_table[MAX_TRACKED_PIDS];
+
+/* ============================= */
+/* Temporary Path Storage        */
+/* ============================= */
+
+#define MAX_PATH_LEN 256
+
+struct stat_call_context {
+    pid_t pid;
+    char path[MAX_PATH_LEN];
+};
+
+static DEFINE_PER_CPU(struct stat_call_context, stat_ctx);
+
+/* ============================= */
+/* Utility Functions             */
+/* ============================= */
+
+static struct pid_stat_tracker *get_pid_tracker(pid_t pid)
+{
+    int i;
+    for (i = 0; i < MAX_TRACKED_PIDS; i++) {
+        if (pid_table[i].pid == pid || pid_table[i].pid == 0) {
+            pid_table[i].pid = pid;
+            return &pid_table[i];
+        }
+    }
+    return NULL;
+}
+
+static void log_event(const char *path, long ret)
+{
+    u64 ts = ktime_get_ns();
+    const char *severity = "INFO";
+
+    if (ret == -ENOENT)
+        severity = "MEDIUM";
+
+    printk(KERN_INFO
+        "[PHOTON RING][%llu] PID:%d (%s) stat(%s) -> %ld [SEVERITY:%s]\n",
+        ts,
+        current->pid,
+        current->comm,
+        path,
+        ret,
+        severity);
+}
+
+/* ============================= */
+/* ENTRY HOOK                    */
+/* ============================= */
+
+static void notrace hook_stat_entry(unsigned long ip, unsigned long parent_ip,
                                     struct ftrace_ops *ops,
                                     struct ftrace_regs *fregs)
 {
     const char __user *filename;
-    char kbuf[256];
+    struct stat_call_context *ctx;
+    char kbuf[MAX_PATH_LEN];
 
-    filename = (const char __user *)PHOTON_RING_GET_ARG(fregs, 1);
-
-    if (!filename)
-        return;
-
-    if (strncpy_from_user(kbuf, filename, sizeof(kbuf)) > 0)
-    {
-        if (strstr(kbuf, HIDDEN_STRING))
-        {
-            printk(KERN_ALERT "[PHOTON RING] hiding file via newfstatat: %s\n", kbuf);
-
-            /* Force return -ENOENT */
-            PHOTON_RING_SET_RET(fregs, -ENOENT);
-        }
-    }
-}
-
-/* ============================= */
-/* statx HOOK                    */
-/* ============================= */
-
-static notrace void hook_statx(unsigned long ip, unsigned long parent_ip,
-                               struct ftrace_ops *ops,
-                               struct ftrace_regs *fregs)
-{
-    const char __user *filename;
-    char kbuf[256];
-
-    filename = (const char __user *)PHOTON_RING_GET_ARG(fregs, 1);
+    filename = (const char __user *)fregs->regs.di; // arg1 for x86_64
 
     if (!filename)
         return;
 
-    if (strncpy_from_user(kbuf, filename, sizeof(kbuf)) > 0)
-    {
-        if (strstr(kbuf, HIDDEN_STRING))
-        {
-            printk(KERN_ALERT "[PHOTON RING] hiding file via statx: %s\n", kbuf);
+    if (strncpy_from_user(kbuf, filename, sizeof(kbuf)) <= 0)
+        return;
 
-            PHOTON_RING_SET_RET(fregs, -ENOENT);
-        }
-    }
+    ctx = this_cpu_ptr(&stat_ctx);
+    ctx->pid = current->pid;
+    strlcpy(ctx->path, kbuf, MAX_PATH_LEN);
 }
 
 /* ============================= */
-/* getpriority HOOK              */
+/* RETURN HOOK                   */
 /* ============================= */
 
-static notrace void hook_getpriority(unsigned long ip, unsigned long parent_ip,
+static void notrace hook_stat_return(unsigned long ip, unsigned long parent_ip,
                                      struct ftrace_ops *ops,
                                      struct ftrace_regs *fregs)
 {
-    int which = (int)PHOTON_RING_GET_ARG(fregs, 0);
-    int who = (int)PHOTON_RING_GET_ARG(fregs, 1);
+    long ret = fregs->regs.ax; // return value
+    struct stat_call_context *ctx = this_cpu_ptr(&stat_ctx);
+    struct pid_stat_tracker *tracker;
 
-    if (which == PRIO_PROCESS && who == HIDDEN_PID)
-    {
-        printk(KERN_ALERT "[PHOTON RING] hiding getpriority for pid: %d\n", who);
+    if (ctx->pid != current->pid)
+        return;
 
-        PHOTON_RING_SET_RET(fregs, -ESRCH);
+    log_event(ctx->path, ret);
+
+    /* Detect ENOENT anomaly */
+    if (ret == -ENOENT) {
+
+        tracker = get_pid_tracker(current->pid);
+        if (!tracker)
+            return;
+
+        tracker->failure_count++;
+
+        /* /proc anomaly detection */
+        if (strstr(ctx->path, "/proc/")) {
+            printk(KERN_ALERT
+                "[PHOTON RING] HIGH: Suspicious /proc stat failure by PID %d (%s)\n",
+                current->pid,
+                current->comm);
+        }
+
+        /* Frequency anomaly detection */
+        if (tracker->failure_count > FAILURE_THRESHOLD) {
+            printk(KERN_ALERT
+                "[PHOTON RING] HIGH: Excessive stat failures by PID %d (%s)\n",
+                current->pid,
+                current->comm);
+        }
     }
 }
+
+/* ============================= */
+/* FTRACE OPS                    */
+/* ============================= */
+
+static struct ftrace_ops entry_ops = {
+    .func = hook_stat_entry,
+    .flags = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION_SAFE,
+};
+
+static struct ftrace_ops return_ops = {
+    .func = hook_stat_return,
+    .flags = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION_SAFE,
+};
 
 /* ============================= */
 /* INIT                          */
 /* ============================= */
 
-int hiding_stat_init(void)
+static int __init hiding_stat_init(void)
 {
     int ret;
-    unsigned long addr;
 
-    hooks_installed = 0;
+    printk(KERN_INFO "[PHOTON RING] Loading stat hiding detector...\n");
 
-    printk(KERN_INFO "[PHOTON RING] initializing hiding_stat module...\n");
-
-    /* ---------- newfstatat ---------- */
-
-    addr = (unsigned long)__x64_sys_newfstatat;
-
-    ops_newfstatat.func = hook_newfstatat;
-    ops_newfstatat.flags = PHOTON_RING_FTRACE_FLAGS;
-
-    ret = ftrace_set_filter_ip(&ops_newfstatat, addr, 0, 0);
+    ret = ftrace_set_filter(&entry_ops, "__x64_sys_newfstatat", 0, 0);
     if (ret)
         return ret;
 
-    ret = register_ftrace_function(&ops_newfstatat);
+    ret = register_ftrace_function(&entry_ops);
     if (ret)
         return ret;
 
-    hooks_installed++;
-    printk(KERN_INFO "[PHOTON RING] hooked __x64_sys_newfstatat\n");
-
-    /* ---------- statx ---------- */
-
-    addr = (unsigned long)__x64_sys_statx;
-
-    ops_statx.func = hook_statx;
-    ops_statx.flags = PHOTON_RING_FTRACE_FLAGS;
-
-    ret = ftrace_set_filter_ip(&ops_statx, addr, 0, 0);
+    ret = ftrace_set_filter(&return_ops, "__x64_sys_newfstatat", 0, 0);
     if (ret)
         return ret;
 
-    ret = register_ftrace_function(&ops_statx);
+    ret = register_ftrace_function(&return_ops);
     if (ret)
         return ret;
 
-    hooks_installed++;
-    printk(KERN_INFO "[PHOTON RING] hooked __x64_sys_statx\n");
-
-    /* ---------- getpriority ---------- */
-
-    addr = (unsigned long)__x64_sys_getpriority;
-
-    ops_getpriority.func = hook_getpriority;
-    ops_getpriority.flags = PHOTON_RING_FTRACE_FLAGS;
-
-    ret = ftrace_set_filter_ip(&ops_getpriority, addr, 0, 0);
-    if (ret)
-        return ret;
-
-    ret = register_ftrace_function(&ops_getpriority);
-    if (ret)
-        return ret;
-
-    hooks_installed++; // <-- TRACK
-    printk(KERN_INFO "[PHOTON RING] hooked __x64_sys_getpriority\n");
-
-    printk(KERN_INFO "[PHOTON RING] hiding_stat active (hooks installed: %d)\n",
-           hooks_installed);
+    printk(KERN_INFO "[PHOTON RING] Stat detector active.\n");
     return 0;
 }
 
@@ -172,31 +192,13 @@ int hiding_stat_init(void)
 /* EXIT                          */
 /* ============================= */
 
-void hiding_stat_exit(void)
+static void __exit hiding_stat_exit(void)
 {
-    printk(KERN_INFO "[PHOTON RING] removing hiding_stat...\n");
-//hook exit behaviors
-    if (hooks_installed > 0)
-    {
-        unregister_ftrace_function(&ops_newfstatat);
-        ftrace_set_filter_ip(&ops_newfstatat, 0, 1, 0);
-        hooks_installed--;
-    }
+    unregister_ftrace_function(&entry_ops);
+    unregister_ftrace_function(&return_ops);
 
-    if (hooks_installed > 0)
-    {
-        unregister_ftrace_function(&ops_statx);
-        ftrace_set_filter_ip(&ops_statx, 0, 1, 0);
-        hooks_installed--;
-    }
-
-    if (hooks_installed > 0)
-    {
-        unregister_ftrace_function(&ops_getpriority);
-        ftrace_set_filter_ip(&ops_getpriority, 0, 1, 0);
-        hooks_installed--;
-    }
-
-    printk(KERN_INFO "[PHOTON RING] hiding_stat removed (hooks remaining: %d)\n",
-           hooks_installed);
+    printk(KERN_INFO "[PHOTON RING] Stat detector unloaded.\n");
 }
+
+module_init(hiding_stat_init);
+module_exit(hiding_stat_exit);
