@@ -73,13 +73,15 @@ static int extract_proc_pid(const char *path)
  * This bypasses any syscall-level hiding since it queries the
  * scheduler data structures directly.
  */
-static bool pid_has_task(pid_t pid)
+static bool photon_pid_has_task(pid_t nr)
 {
+	struct pid *pid_struct;
 	struct task_struct *task;
 	bool exists;
 
 	rcu_read_lock();
-	task = find_task_by_vpid(pid);
+	pid_struct = find_vpid(nr);
+	task = pid_struct ? pid_task(pid_struct, PIDTYPE_PID) : NULL;
 	exists = (task != NULL);
 	rcu_read_unlock();
 
@@ -151,7 +153,7 @@ static notrace void analyze_stat_path(const char *path, const char *syscall_name
 	/* Check /proc PID paths for hidden process detection */
 	proc_pid = extract_proc_pid(path);
 	if (proc_pid > 0) {
-		bool task_exists = pid_has_task(proc_pid);
+		bool task_exists = photon_pid_has_task(proc_pid);
 		bool vfs_exists = path_exists_in_vfs(path);
 
 		if (task_exists && !vfs_exists) {
@@ -215,7 +217,7 @@ static notrace void hook_stat_di(unsigned long ip, unsigned long parent_ip,
 	if (!regs)
 		return;
 
-	pathname = (const char __user *)regs->di;
+	pathname = (const char __user *)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
 	if (!pathname)
 		return;
 
@@ -243,7 +245,7 @@ static notrace void hook_stat_si(unsigned long ip, unsigned long parent_ip,
 	if (!regs)
 		return;
 
-	pathname = (const char __user *)regs->si;
+	pathname = (const char __user *)PHOTON_RING_KPROBE_GET_ARG(regs, 1);
 	if (!pathname)
 		return;
 
@@ -271,13 +273,13 @@ static notrace void hook_getpriority_cb(unsigned long ip, unsigned long parent_i
 	if (!regs)
 		return;
 
-	which = (int)regs->di;
-	who = (int)regs->si;
+	which = (int)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
+	who = (int)PHOTON_RING_KPROBE_GET_ARG(regs, 1);
 
 	if (which != PRIO_PROCESS || who <= 0)
 		return;
 
-	if (pid_has_task(who) && __ratelimit(&getprio_rl)) {
+	if (photon_pid_has_task(who) && __ratelimit(&getprio_rl)) {
 		printk(KERN_INFO
 			"[PHOTON RING] GETPRIORITY_AUDIT: getpriority(PRIO_PROCESS, %d) by PID %d (%s) - target PID verified in tasklist\n",
 			who, current->pid, current->comm);
@@ -307,7 +309,8 @@ static struct ftrace_ops getpriority_ops = {
 /* Syscall names to monitor      */
 /* ============================= */
 
-/* pathname in regs->di (first arg): stat, lstat, newstat, newlstat */
+/* pathname in first arg: stat, lstat, newstat, newlstat */
+#if defined(__x86_64__)
 static const char *stat_di_names[] = {
 	"__x64_sys_newstat",
 	"__x64_sys_newlstat",
@@ -315,13 +318,30 @@ static const char *stat_di_names[] = {
 	"__x64_sys_lstat",
 	NULL,
 };
-
-/* pathname in regs->si (second arg): newfstatat, statx */
 static const char *stat_si_names[] = {
 	"__x64_sys_newfstatat",
 	"__x64_sys_statx",
 	NULL,
 };
+#elif defined(__aarch64__)
+static const char *stat_di_names[] = {
+	"__arm64_sys_newstat",
+	"__arm64_sys_newlstat",
+	"__arm64_sys_stat",
+	"__arm64_sys_lstat",
+	NULL,
+};
+/* pathname in second arg: newfstatat, statx */
+static const char *stat_si_names[] = {
+	"__arm64_sys_newfstatat",
+	"__arm64_sys_statx",
+	NULL,
+};
+#else
+#warning "Unknown architecture for syscall names"
+static const char *stat_di_names[] = { NULL };
+static const char *stat_si_names[] = { NULL };
+#endif
 
 /*
  * Register ftrace filter for multiple syscall names on one ftrace_ops.
@@ -336,7 +356,7 @@ static int setup_ftrace_filter(struct ftrace_ops *ops, const char **names)
 
 	for (i = 0; names[i]; i++) {
 		/* reset=1 on first, reset=0 to append subsequent */
-		ret = ftrace_set_filter(ops, names[i],
+		ret = ftrace_set_filter(ops, (unsigned char *)names[i],
 					strlen(names[i]),
 					!has_filter);
 		if (ret) {
@@ -403,8 +423,17 @@ int hiding_stat_init(void)
 	}
 
 	/* Group 3: getpriority (PID hiding detection) */
-	ret = ftrace_set_filter(&getpriority_ops, "__x64_sys_getpriority",
+#if defined(__x86_64__)
+	ret = ftrace_set_filter(&getpriority_ops,
+				(unsigned char *)"__x64_sys_getpriority",
 				strlen("__x64_sys_getpriority"), 1);
+#elif defined(__aarch64__)
+	ret = ftrace_set_filter(&getpriority_ops,
+				(unsigned char *)"__arm64_sys_getpriority",
+				strlen("__arm64_sys_getpriority"), 1);
+#else
+	ret = -ENOENT;
+#endif
 	if (ret == 0) {
 		ret = register_ftrace_function(&getpriority_ops);
 		if (ret) {
