@@ -1,91 +1,217 @@
 # PHOTON RING
 <img width="500" height="500" alt="photon_ring_logo" src="https://github.com/user-attachments/assets/4c139850-ec36-4381-98c4-fa9b5222bb18" />
 
+A kernel module that detects rootkit-style activity (kprobe hooking, audit evasion, taskstats manipulation, privilege escalation) and streams detections to Elasticsearch for real-time visualization in Kibana.
 
-A loadable kernel module and Python toolkit for real-time Linux security monitoring.
+## Project Structure
 
-## Overview
+```
+lksm/
+├── docker-compose.yml         # Elasticsearch + Kibana stack
+├── kernel_module/             # The kernel module (C)
+│   ├── Makefile
+│   ├── main.c                 # Entry point, loads all detectors
+│   ├── include/               # Header files
+│   └── modules/               # Detector implementations
+│       ├── kprobe_detector.c
+│       ├── hooking_audit_detector.c
+│       ├── taskstats_hook_detector.c
+│       └── become_root_detector.c
+├── python_tools/              # Event reader and ES indexer (Python)
+│   ├── main.py                # CLI entry point
+│   ├── core/                  # Event parsing from dmesg
+│   └── output/                # Elasticsearch writer + JSON logger
+├── scripts/
+│   └── setup_kibana.py        # One-time Kibana data view setup
+├── config/                    # Default configuration files
+├── data/logs/                 # Event logs (created at runtime)
+└── requirements.txt           # Python dependencies
+```
 
-LKSM has two intertwined components:
+## Prerequisites 
+## MUST BE INSTALLED ON YOUR MACHINE
 
-1. **Kernel Module** (C) — a loadable kernel module (`photon_ring.ko`) that hooks into the Linux kernel via ftrace to monitor kprobe registrations and detect suspicious activity. Uses a modular detector registry so new detectors can be added easily.
-2. **Python Tools** — a user-space Python suite for analysis and monitoring
+- Ubuntu/Debian Linux
+- Python 3.8+
+- Docker and Docker Compose
 
-**Prerequisite:** This must be run on a **Linux machine** (Ubuntu/Debian/Fedora/Arch). It requires Linux kernel headers and kernel module loading.
+Install the required system packages:
 
-## Quick Start
+```bash
+sudo apt install build-essential linux-headers-$(uname -r) python3-venv docker docker-compose
+```
 
-### Step 1: Environment Setup
+## Setup
+
+### 1. Python Environment
 
 ```bash
 cd lksm
-bash setup.sh
-```
 
-This installs system packages (gcc, make, kernel headers, Python, etc.), verifies kernel config has required features enabled, creates a Python virtual environment, and installs all Python dependencies.
-
-### Step 2: Activate the Virtual Environment
-
-```bash
+# Create a Python virtual environment and install dependencies
+python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-You need to do this every time you open a new terminal.
+### 2. Start Elasticsearch and Kibana
 
-### Step 3: Verify Everything
+From the `lksm/` directory:
 
 ```bash
-python check_versions.py
-make test-env
+sudo docker-compose up -d
 ```
 
-`check_versions.py` checks Python version (3.8–3.12), GCC (9+), kernel version (4.15+), kernel headers, virtual env status, and that all Python packages match `requirements.txt`.
+This starts two containers:
 
-`make test-env` does a similar environment check via the Makefile.
+| Service | Port | Description |
+|---------|------|-------------|
+| Elasticsearch | `localhost:9200` | Event storage and search engine |
+| Kibana | `localhost:5601` | Web-based visualization dashboard |
 
-### Step 4: Build the Kernel Module
+Kibana will wait for Elasticsearch to be healthy before starting. You can verify Elasticsearch is ready with:
 
 ```bash
-cd kernel_module && make && cd ..
+sudo docker-compose ps
 ```
 
-This compiles `photon_ring.ko`, which uses a detector registry in `main.c` to load detection modules (currently `kprobe_detector`). It uses `photon_ring_arch.h` for portable ftrace access across x86_64 and ARM64.
-
-### Step 5: Load the Kernel Module
+### 3. Create the Kibana Data View (one-time)
 
 ```bash
-bash scripts/load_module.sh
+python scripts/setup_kibana.py
 ```
 
-This builds, loads, and shows module status and kernel logs automatically.
+This script waits for Kibana to become available, then creates an **"LKSM Events"** data view pointed at the `lksm_events` index. You only need to run this once.
 
-### Stopping / Unloading
+### 4. Build and Load the Kernel Module
 
 ```bash
-bash scripts/unload_module.sh
+cd lksm/kernel_module
+
+# Build
+make
+
+# Load the module
+sudo insmod photon_ring.ko
+
+# Verify it loaded
+lsmod | grep photon_ring
+sudo dmesg | tail -30
 ```
 
-This unloads the module and cleans build artifacts.
+You should see output like:
 
-## Version Checks
+```
+[PHOTON RING] Initializing detection system
+[PHOTON RING] Starting detector: kprobe_detector
+[PHOTON RING] successfully hooked register_kprobe
+[PHOTON RING] All detectors active (4/4)
+[PHOTON RING] System is now monitoring...
+```
 
-| Method | Command | What it checks |
-|--------|---------|----------------|
-| Python script | `python check_versions.py` | Python version, venv active, GCC version, kernel version, kernel headers, Python package versions |
-| Makefile | `make test-env` | venv exists, gcc/make/python3 installed, kernel headers found, lists installed pip packages |
-| Makefile | `make verify-kernel` | Checks specific kernel config options (CONFIG_MODULES, CONFIG_KPROBES, etc.) |
+#### Makefile Commands
 
-## Documentation
+| Command          | What it does                          |
+|------------------|---------------------------------------|
+| `make`           | Build the module                      |
+| `make clean`     | Remove build artifacts                |
+| `make install`   | Build and load the module             |
+| `make uninstall` | Unload the module                     |
+| `make reload`    | Unload, clean, rebuild, and reload    |
+| `make logs`      | Show recent kernel logs               |
+| `make status`    | Check if the module is loaded         |
 
-- [Architecture](lksm/docs/Architecture/LKSM_Architecture_Document.pdf)
-- [Dependency Management](lksm/docs/DEPENDENCY_MANAGEMENT.md)
-- [Kernel Dependencies](lksm/docs/KERNEL_DEPENDENCIES.md)
-- [Quick Reference](lksm/docs/QUICK_START.md)
+### 5. Run the Python Daemon
+
+From the `lksm/` directory:
+
+```bash
+# Dashboard mode (directs you to Kibana, then runs the daemon):
+sudo venv/bin/python -m python_tools.main --mode dashboard
+
+# Headless mode (no UI, just logging + ES indexing):
+sudo venv/bin/python -m python_tools.main --mode daemon
+```
+
+> **Why sudo?** Modern kernels restrict `dmesg` to root. You must use the full
+> `venv/bin/python` path because `sudo` does not inherit your virtual environment.
+
+The daemon polls dmesg for `[PHOTON RING]` messages, parses them into structured events, and:
+- Writes them to `data/logs/lksm_events_YYYY-MM-DD.jsonl`
+- Indexes them into Elasticsearch via the bulk API
+
+### 6. View Detections in Kibana
+
+Open **http://localhost:5601** in your browser, go to **Discover**, and select the **"LKSM Events"** data view. Events will appear in real time as the kernel module detects suspicious activity.
+
+## Teardown
+
+```bash
+# Unload the kernel module
+sudo rmmod photon_ring
+
+# Stop Elasticsearch and Kibana
+cd lksm
+sudo docker-compose down
+
+# To also delete stored event data:
+sudo docker-compose down -v
+```
+
+## Configuration
+
+Configuration is in `lksm/config/default_config.yml`. Key settings:
+
+| Section | Key | Default | Description |
+|---------|-----|---------|-------------|
+| `elasticsearch` | `enabled` | `true` | Enable/disable ES indexing |
+| `elasticsearch` | `host` | `http://localhost:9200` | Elasticsearch endpoint |
+| `elasticsearch` | `index` | `lksm_events` | Index name for events |
+| `communication` | `poll_interval` | `0.1` | Seconds between dmesg polls |
+| `logging` | `enabled` | `true` | Enable JSONL file logging |
+| `logging` | `output_dir` | `data/logs` | Directory for log files |
+
+## Troubleshooting
+
+**No events in Kibana** — Make sure the kernel module is loaded (`lsmod | grep photon_ring`), the daemon is running with `sudo`, and Elasticsearch is healthy (`curl http://localhost:9200`).
+
+**Kibana not loading** — Wait a minute after `sudo docker-compose up -d`. Kibana takes time to initialize. Check container status with `sudo docker-compose ps`.
+
+**"insmod: ERROR: could not insert module ... Invalid parameters"** — Your kernel may be missing ftrace support. Check with:
+
+```bash
+grep DYNAMIC_FTRACE /boot/config-$(uname -r)
+```
+
+You need `CONFIG_DYNAMIC_FTRACE_WITH_ARGS=y` (ARM64) or `CONFIG_DYNAMIC_FTRACE_WITH_REGS=y` (x86).
+
+**"kernel headers not found" during make** — Install them:
+
+```bash
+sudo apt install linux-headers-$(uname -r)
+```
+
+## How It Works
+
+1. The **kernel module** hooks into kernel functions using ftrace and logs suspicious activity via `printk` to the kernel ring buffer (dmesg), tagged with `[PHOTON RING]`.
+2. The **Python daemon** polls `dmesg` for these messages, parses them into structured events, logs them to JSONL files, and bulk-indexes them into Elasticsearch.
+3. **Kibana** provides a real-time web dashboard for searching, filtering, and visualizing detection events.
+
+### Current Detectors
+
+| Detector | Hooked Function(s) | What It Detects |
+|----------|-------------------|-----------------|
+| **kprobe_detector** | `register_kprobe` | Monitors kprobe registrations; flags suspicious probes (e.g. `kallsyms_lookup_name`) |
+| **taskstats_hook_detector** | `genl_register_family`, `cn_add_callback`, `taskstats_exit` | Monitors taskstats, generic netlink, and process connector hooks |
+| **hooking_audit_detector** | `netlink_unicast`, `audit_log_start`, `audit_log_end`, `__audit_syscall_entry` | Monitors audit subsystem hooks and evasion attempts |
+| **become_root_detector** | `commit_creds` | Detects privilege escalation — non-root processes gaining root credentials |
 
 ## Team
 
 - Team Number: Group 32
 - Team Members: Jamie King, Brett Balquist, Kaden Huber, Hart Nurnberg, Max Biundo, & Dustin Le
+
+### Link to project board: https://github.com/users/brett-b112/projects/1
 
 ## License
 

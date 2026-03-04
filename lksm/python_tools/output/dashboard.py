@@ -1,5 +1,8 @@
 """
 Flask dashboard — displays LKSM events at http://host:port.
+
+DEPRECATED: This module is no longer used. The frontend has been migrated to
+Elasticsearch + Kibana.  See docker-compose.yml and es_writer.py.
 """
 
 import json

@@ -2,6 +2,12 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include "include/kprobe_detector.h"
+#include "include/taskstats_hook_detector.h"
+#include "include/hooking_audit_detector.h"
+#include "include/tcp_hiding_detector.h"
+#include "include/become_root_detector.h"
+#include "include/bpf_hook_detector.h"
+#include "include/hiding_stat.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -27,27 +33,34 @@ static struct detector detectors[] = {
     },
     {
         .name = "taskstats_hook_detector",
-        .init = taskstats_hook_detector_init,
-        .exit = taskstats_hook_detector_exit,
+        .init = taskstats_detector_init,
+        .exit = taskstats_detector_exit,
     },
     {
         .name = "hooking_audit_detector",
-        .init = hooking_audit_detector_init,
-        .exit = hooking_audit_detector_exit,
+        .init = audit_detector_init,
+        .exit = audit_detector_exit,
+    },
+    {
+        .name = "tcp_hiding_detector",
+        .init = tcp_hiding_detector_init,
+        .exit = tcp_hiding_detector_exit,
+    },
+    {
+        .name = "become_root_detector",
+        .init = become_root_detector_init,
+        .exit = become_root_detector_exit,
+    },
+    {
+        .name = "bpf_hook_detector",
+        .init = bpf_hook_detector_init,
+        .exit = bpf_hook_detector_exit,
     },
     {
         .name = "hiding_stat",
         .init = hiding_stat_init,
         .exit = hiding_stat_exit,
     },
-
-    /* add future detectors here:
-     * {
-     *     .name = "syscall_detector",
-     *     .init = syscall_detector_init,
-     *     .exit = syscall_detector_exit,
-     * },
-     */
 };
 
 #define NUM_DETECTORS (sizeof(detectors) / sizeof(detectors[0]))
@@ -86,7 +99,7 @@ static int __init photon_ring_init(void)
     }
 
     printk(KERN_INFO "========================================\n");
-    printk(KERN_INFO "[PHOTON RING] All detectors active (%d/%d)\n",
+    printk(KERN_INFO "[PHOTON RING] All detectors active (%d/%zu)\n",
            active_detectors, NUM_DETECTORS);
     printk(KERN_INFO "[PHOTON RING] System is now monitoring...\n");
     printk(KERN_INFO "========================================\n");
