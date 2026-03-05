@@ -8,6 +8,7 @@
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
 #include "include/hook_file_access.h"
+#include "include/hiding_stat.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -18,7 +19,8 @@ MODULE_VERSION("1.0");
  * detector registry structure
  * add new detectors here to automatically include them in init/cleanup
  */
-struct detector {
+struct detector
+{
     const char *name;
     int (*init)(void);
     void (*exit)(void);
@@ -26,8 +28,8 @@ struct detector {
 
 static struct detector detectors[] = {
     {
-        .name = "kprobe_detector", 
-        .init = kprobe_detector_init, 
+        .name = "kprobe_detector",
+        .init = kprobe_detector_init,
         .exit = kprobe_detector_exit,
     },
     {
@@ -55,11 +57,6 @@ static struct detector detectors[] = {
         .init = bpf_hook_detector_init,
         .exit = bpf_hook_detector_exit,
     },
-    {
-    .name = "hook_file_access_detector",
-    .init = file_access_detector_init,
-    .exit = file_access_detector_exit,
-    },
 };
 
 #define NUM_DETECTORS (sizeof(detectors) / sizeof(detectors[0]))
@@ -77,19 +74,21 @@ static int __init photon_ring_init(void)
     printk(KERN_INFO "========================================\n");
 
     // initialize all detectors
-    for (i = 0; i < NUM_DETECTORS; i++) {
-        printk(KERN_INFO "[PHOTON RING] Starting detector: %s\n", 
+    for (i = 0; i < NUM_DETECTORS; i++)
+    {
+        printk(KERN_INFO "[PHOTON RING] Starting detector: %s\n",
                detectors[i].name);
-        
+
         ret = detectors[i].init();
-        if (ret) {
+        if (ret)
+        {
             printk(KERN_ERR "[PHOTON RING] Failed to initialize %s: %d\n",
                    detectors[i].name, ret);
-            
+
             // cleanup previously initialized detectors
             goto cleanup;
         }
-        
+
         active_detectors++;
         printk(KERN_INFO "[PHOTON RING] %s initialized successfully\n",
                detectors[i].name);
@@ -105,17 +104,18 @@ static int __init photon_ring_init(void)
 
 cleanup:
     // cleanup in reverse order
-    for (i = active_detectors - 1; i >= 0; i--) {
-        printk(KERN_INFO "[PHOTON RING] Cleaning up %s\n", 
+    for (i = active_detectors - 1; i >= 0; i--)
+    {
+        printk(KERN_INFO "[PHOTON RING] Cleaning up %s\n",
                detectors[i].name);
         detectors[i].exit();
     }
-    
+
     printk(KERN_ERR "[PHOTON RING] Initialization failed\n");
     return ret;
 }
 
-static void __exit photon_ring_exit(void) 
+static void __exit photon_ring_exit(void)
 {
     int i;
 
@@ -124,7 +124,8 @@ static void __exit photon_ring_exit(void)
     printk(KERN_INFO "========================================\n");
 
     // cleanup all detectors in reverse order
-    for (i = active_detectors - 1; i >= 0; i--) {
+    for (i = active_detectors - 1; i >= 0; i--)
+    {
         printk(KERN_INFO "[PHOTON RING] Stopping detector: %s\n",
                detectors[i].name);
         detectors[i].exit();
