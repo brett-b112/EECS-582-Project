@@ -7,6 +7,7 @@
 #include "include/tcp_hiding_detector.h"
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
+#include "include/hook_file_access.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -53,6 +54,11 @@ static struct detector detectors[] = {
         .name = "bpf_hook_detector",
         .init = bpf_hook_detector_init,
         .exit = bpf_hook_detector_exit,
+    },
+    {
+    .name = "hook_file_access_detector",
+    .init = file_access_detector_init,
+    .exit = file_access_detector_exit,
     },
 };
 
