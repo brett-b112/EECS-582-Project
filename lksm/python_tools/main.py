@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from python_tools.core.module_base import ModuleRegistry
 from python_tools.output.json_logger import EventLogger
-from python_tools.output.dashboard import create_app, push_events
+from python_tools.output.es_writer import ElasticsearchWriter
 
 
 def load_config(path: str) -> dict:
@@ -32,12 +32,13 @@ def load_config(path: str) -> dict:
 
 
 def run_daemon(config: dict, stop_event: Optional[threading.Event] = None) -> None:
-    """Poll modules in a loop, log events, and push to dashboard."""
+    """Poll modules in a loop, log events, and send to Elasticsearch."""
     registry = ModuleRegistry()
     registry.discover("python_tools.core.modules")
     registry.start_all(config)
 
     logger = EventLogger(config)
+    es_writer = ElasticsearchWriter(config)
     interval = config.get("communication", {}).get("poll_interval", 0.1)
 
     print(f"Daemon running — modules: {registry.module_names}")
@@ -46,7 +47,7 @@ def run_daemon(config: dict, stop_event: Optional[threading.Event] = None) -> No
             events = registry.poll_all()
             if events:
                 logger.log_events(events)
-                push_events(events)
+                es_writer.log_events(events)
             time.sleep(interval)
     except KeyboardInterrupt:
         pass
@@ -56,21 +57,11 @@ def run_daemon(config: dict, stop_event: Optional[threading.Event] = None) -> No
 
 
 def run_dashboard(config: dict) -> None:
-    """Start daemon in a background thread, then run Flask in the foreground."""
-    stop = threading.Event()
-    daemon_thread = threading.Thread(target=run_daemon, args=(config, stop), daemon=True)
-    daemon_thread.start()
-
-    dash_cfg = config.get("dashboard", {})
-    host = dash_cfg.get("host", "127.0.0.1")
-    port = dash_cfg.get("port", 5000)
-
-    app = create_app()
-    print(f"Dashboard at http://{host}:{port}")
-    try:
-        app.run(host=host, port=port)
-    finally:
-        stop.set()
+    """Start daemon and direct the user to Kibana for visualization."""
+    print("The Flask dashboard has been replaced by Kibana.")
+    print("Open Kibana at http://localhost:5601 (run 'docker-compose up -d' first).")
+    print("Starting daemon...\n")
+    run_daemon(config)
 
 
 def main():
