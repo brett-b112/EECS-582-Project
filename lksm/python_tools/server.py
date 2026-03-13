@@ -7,6 +7,9 @@ Responsibilities:
   2. Receive length-prefixed, AES-256-GCM-encrypted frames from agents.
   3. Replicate the kernel's HKDF key derivation to decrypt each frame.
   4. Parse, validate, and log the decrypted photon_event structs.
+  5. Index every decrypted event into Elasticsearch for Kibana visualization.
+     Documents are written to the same index and schema used by es_writer.py
+     so that dmesg-sourced and kernel-channel events appear in one dashboard.
 
 Wire protocol (agent → server, after mTLS handshake):
   ┌─────────────────────────────────────────────────────────┐
@@ -53,7 +56,14 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
+
+try:
+    from elasticsearch import Elasticsearch
+    from elasticsearch.helpers import bulk as es_bulk
+    _ES_AVAILABLE = True
+except ImportError:
+    _ES_AVAILABLE = False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants (must match kernel headers exactly)
@@ -215,6 +225,208 @@ def parse_photon_event(plaintext: bytes) -> PhotonEvent:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Event type → severity mapping
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Maps photon event_type integers to (severity, lksm_type) pairs that match
+# the schema used by es_writer.py / dmesg_reader.py so all events land in the
+# same Kibana index with consistent field values.
+_EVENT_SEVERITY: Dict[int, str] = {
+    1:   "high",      # KPROBE_REG  — any kprobe registration is noteworthy
+    2:   "critical",  # SYSCALL_HOOK
+    3:   "critical",  # MODULE_HIDDEN
+    4:   "critical",  # PROCESS_HIDDEN
+    5:   "high",      # NETWORK_HOOK
+    100: "info",      # HEARTBEAT
+    101: "info",      # KEY_ROTATION
+}
+
+# kprobe_event_data layout inside photon_event.data (matches kprobe_detector.h):
+#   char symbol_name[64]
+#   u64  addr          (8 bytes)
+#   u32  flags         (4 bytes)
+#   u8   is_suspicious (1 byte)
+_KPROBE_DATA_FMT  = "<64sQIB"
+_KPROBE_DATA_SIZE = struct.calcsize(_KPROBE_DATA_FMT)  # 77 bytes
+
+
+def _parse_event_payload(event: "PhotonEvent") -> Dict[str, Any]:
+    """
+    Decode event.data into a structured dict that mirrors the 'data' field
+    shape produced by dmesg_reader.py — allowing a single Kibana index mapping
+    to cover both sources.
+    """
+    payload = event.data[:event.data_len]
+
+    if event.event_type == 1 and event.data_len >= _KPROBE_DATA_SIZE:
+        # KPROBE_REG — kprobe_event_data struct
+        sym_raw, addr, flags, is_sus = struct.unpack_from(_KPROBE_DATA_FMT, payload, 0)
+        symbol = sym_raw.rstrip(b"\x00").decode("utf-8", errors="replace")
+        return {
+            "detector":      "kprobe_detector",
+            "symbol":        symbol,
+            "target_addr":   f"0x{addr:016x}",
+            "hook_mechanism": "kprobe",
+            "is_suspicious": bool(is_sus),
+            "flags":         flags,
+        }
+
+    if event.event_type == 100 and event.data_len >= 32:
+        # HEARTBEAT — uptime_ns(8) + sequence_num(8) + events_sent(8) + events_dropped(8)
+        uptime, seq, sent, dropped = struct.unpack_from("<QQQQ", payload, 0)
+        return {
+            "detector":       "system",
+            "uptime_ns":      uptime,
+            "events_sent":    sent,
+            "events_dropped": dropped,
+        }
+
+    if event.event_type == 101 and event.data_len >= 16:
+        # KEY_ROTATION — new_rotation_num(8) + timestamp_ns(8)
+        new_rot, ts_ns = struct.unpack_from("<QQ", payload, 0)
+        return {
+            "detector":          "system",
+            "new_rotation_num":  new_rot,
+        }
+
+    # Fallback: hex-encode the raw payload
+    return {
+        "detector": "photon_ring",
+        "raw_hex":  payload.hex(),
+    }
+
+
+def _event_to_doc(event: "PhotonEvent", peer: str) -> Dict[str, Any]:
+    """
+    Convert a decrypted PhotonEvent to an Elasticsearch document whose shape
+    matches the INDEX_MAPPING defined in es_writer.py.
+    """
+    severity = _EVENT_SEVERITY.get(event.event_type, "info")
+    # Upgrade severity for the specific kallsyms_lookup_name probe
+    payload_data = _parse_event_payload(event)
+    if payload_data.get("symbol") == "kallsyms_lookup_name" or payload_data.get("is_suspicious"):
+        severity = "critical"
+
+    return {
+        "seq":        event.sequence_num,
+        "ts":         event.timestamp_ns / 1e9,
+        "@timestamp": datetime.fromtimestamp(event.timestamp_ns / 1e9, tz=timezone.utc).isoformat(),
+        "type":       event.event_name,
+        "severity":   severity,
+        "source":     f"photon_ring_agent:{peer}",
+        "data":       payload_data,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Elasticsearch writer
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Index mapping — identical to es_writer.py so both sources share one index.
+_INDEX_MAPPING = {
+    "settings": {"number_of_shards": 1, "number_of_replicas": 0},
+    "mappings": {
+        "properties": {
+            "seq":        {"type": "integer"},
+            "ts":         {"type": "double"},
+            "@timestamp": {"type": "date"},
+            "type":       {"type": "keyword"},
+            "severity":   {"type": "keyword"},
+            "source":     {"type": "keyword"},
+            "data": {
+                "properties": {
+                    "message":       {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
+                    "symbol":        {"type": "keyword"},
+                    "pid":           {"type": "integer"},
+                    "process_name":  {"type": "keyword"},
+                    "detector":      {"type": "keyword"},
+                    "target_symbol": {"type": "keyword"},
+                    "target_addr":   {"type": "keyword"},
+                    "hook_mechanism":{"type": "keyword"},
+                    "is_suspicious": {"type": "boolean"},
+                    "raw_hex":       {"type": "keyword"},
+                    "uptime_ns":     {"type": "long"},
+                    "events_sent":   {"type": "long"},
+                    "events_dropped":{"type": "long"},
+                    "new_rotation_num": {"type": "long"},
+                }
+            },
+        }
+    },
+}
+
+
+class PhotonESWriter:
+    """
+    Indexes decrypted PhotonEvents into Elasticsearch.
+
+    Mirrors the ElasticsearchWriter interface from es_writer.py so that events
+    arriving via the encrypted kernel channel land in the same index as those
+    read from dmesg by KprobeReaderModule.
+    """
+
+    def __init__(self, host: str, index: str, enabled: bool,
+                 log: logging.Logger) -> None:
+        self._log     = log
+        self._index   = index
+        self._enabled = enabled and _ES_AVAILABLE
+
+        if not _ES_AVAILABLE and enabled:
+            log.warning("elasticsearch-py not installed — ES output disabled. "
+                        "Run: pip install elasticsearch")
+            return
+
+        if not self._enabled:
+            log.info("Elasticsearch output disabled")
+            return
+
+        try:
+            self._es = Elasticsearch(hosts=[host])
+            # Verify connectivity with a cheap call
+            self._es.info()
+            self._ensure_index()
+            log.info("Connected to Elasticsearch at %s (index: %s)", host, index)
+        except Exception as exc:
+            # Provide a targeted hint for the most common mistakes before
+            # falling back to the generic traceback-free error message.
+            hint = ""
+            status = getattr(getattr(exc, "meta", None), "status", None)
+            if status in (301, 302, 303, 307, 308):
+                hint = (
+                    f" Got HTTP {status} (redirect) — you may have pointed "
+                    f"--es-host at Kibana (port 5601) instead of Elasticsearch "
+                    f"(port 9200). Correct usage: --es-host http://<host>:9200"
+                )
+            elif "Connection refused" in str(exc) or "NewConnectionError" in str(exc):
+                hint = (
+                    " Connection refused — is Elasticsearch running? "
+                    "Try: docker-compose up -d"
+                )
+            log.error("Failed to connect to Elasticsearch — ES output disabled.%s", hint)
+            log.debug("ES connection error detail:", exc_info=True)
+            self._enabled = False
+
+    def _ensure_index(self) -> None:
+        if not self._es.indices.exists(index=self._index):
+            self._es.indices.create(
+                index=self._index,
+                settings=_INDEX_MAPPING["settings"],
+                mappings=_INDEX_MAPPING["mappings"],
+            )
+            self._log.info("Created Elasticsearch index '%s'", self._index)
+
+    def index_event(self, event: "PhotonEvent", peer: str) -> None:
+        """Index a single decrypted event. Called from the agent handler thread."""
+        if not self._enabled:
+            return
+        doc = _event_to_doc(event, peer)
+        try:
+            self._es.index(index=self._index, document=doc)
+        except Exception:
+            self._log.exception("ES index failed for seq=%s", event.sequence_num)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Per-agent session key cache
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -254,7 +466,7 @@ def recv_exactly(sock: ssl.SSLSocket, n: int) -> Optional[bytes]:
 
 def handle_agent(conn: ssl.SSLSocket, addr: tuple,
                  master_key: bytes, key_cache: SessionKeyCache,
-                 log: logging.Logger) -> None:
+                 es_writer: "PhotonESWriter", log: logging.Logger) -> None:
     peer = f"{addr[0]}:{addr[1]}"
     log.info(f"[{peer}] Connection established")
     stats = {"frames": 0, "errors": 0, "bytes": 0}
@@ -330,6 +542,7 @@ def handle_agent(conn: ssl.SSLSocket, addr: tuple,
 
             stats["frames"] += 1
             _log_event(event, frame, peer, log)
+            es_writer.index_event(event, peer)
 
     except (ssl.SSLError, OSError) as e:
         log.warning(f"[{peer}] Socket error: {e}")
@@ -375,7 +588,7 @@ def build_ssl_context(cert: str, key: str, ca: str) -> ssl.SSLContext:
 
 def run_server(host: str, port: int, master_key: bytes,
                cert: str, key_file: str, ca: str,
-               log: logging.Logger) -> None:
+               es_writer: "PhotonESWriter", log: logging.Logger) -> None:
     ctx = build_ssl_context(cert, key_file, ca)
     key_cache = SessionKeyCache(master_key)
 
@@ -392,7 +605,7 @@ def run_server(host: str, port: int, master_key: bytes,
                 tls_conn = ctx.wrap_socket(client, server_side=True)
                 t = threading.Thread(
                     target=handle_agent,
-                    args=(tls_conn, addr, master_key, key_cache, log),
+                    args=(tls_conn, addr, master_key, key_cache, es_writer, log),
                     daemon=True,
                     name=f"agent-{addr[0]}-{addr[1]}"
                 )
@@ -421,6 +634,14 @@ def main() -> None:
                         help="Load master key from file (hex); generate if absent")
     parser.add_argument("--save-key", default=None,
                         help="Write generated master key (hex) to this file")
+    # Elasticsearch options (mirror es_writer.py config keys)
+    parser.add_argument("--es-host",  default="http://localhost:9200",
+                        help="Elasticsearch base URL — port 9200, not Kibana's 5601 "
+                             "(default: http://localhost:9200)")
+    parser.add_argument("--es-index", default="lksm_events",
+                        help="Elasticsearch index name (default: lksm_events)")
+    parser.add_argument("--no-es",    action="store_true",
+                        help="Disable Elasticsearch output")
     parser.add_argument("--verbose",  action="store_true")
     args = parser.parse_args()
 
@@ -442,8 +663,15 @@ def main() -> None:
             Path(args.save_key).write_text(master_key.hex() + "\n")
             log.info(f"Master key saved to {args.save_key}")
 
+    es_writer = PhotonESWriter(
+        host=args.es_host,
+        index=args.es_index,
+        enabled=not args.no_es,
+        log=log,
+    )
+
     run_server(args.host, args.port, master_key,
-               args.cert, args.key, args.ca, log)
+               args.cert, args.key, args.ca, es_writer, log)
 
 
 if __name__ == "__main__":
