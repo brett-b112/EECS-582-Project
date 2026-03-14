@@ -11,6 +11,7 @@ enum photon_event_type {
     PHOTON_EVENT_MODULE_HIDDEN = 3,
     PHOTON_EVENT_PROCESS_HIDDEN = 4,
     PHOTON_EVENT_NETWORK_HOOK = 5,
+    PHOTON_EVENT_PRIVESC = 6,
     PHOTON_EVENT_HEARTBEAT = 100,      // periodic keepalive
     PHOTON_EVENT_KEY_ROTATION = 101,   // key change event
 };
@@ -40,8 +41,16 @@ struct kprobe_event_data {
     char symbol_name[64];
     unsigned long addr;
     u32 flags;
-    u8 is_suspicious;
 } __attribute__((packed));
+
+struct becomeroot_event_data {
+    char process[64];
+    u32 pid; 
+} __attribute__((packed));
+
+struct bpf_event_data {
+    char 
+}
 
 /**
  * event_manager_init - Initialize the event management subsystem

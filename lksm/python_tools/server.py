@@ -343,7 +343,6 @@ _INDEX_MAPPING = {
                     "target_symbol": {"type": "keyword"},
                     "target_addr":   {"type": "keyword"},
                     "hook_mechanism":{"type": "keyword"},
-                    "is_suspicious": {"type": "boolean"},
                     "raw_hex":       {"type": "keyword"},
                     "uptime_ns":     {"type": "long"},
                     "events_sent":   {"type": "long"},

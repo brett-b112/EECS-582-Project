@@ -2,6 +2,7 @@
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include "include/kprobe_detector.h"
+#include "include/become_root_detector.h"
 #include "include/crypto.h"
 #include "include/cdev_ch.h"
 
@@ -26,6 +27,11 @@ static struct detector detectors[] = {
         .init = kprobe_detector_init, 
         .exit = kprobe_detector_exit,
     },
+    {
+        .name = "become_root_detector",
+        .init = become_root_detector_init,
+        .exit = become_root_detector_exit,
+    }
     /*
     {
         .name = "taskstats_hook_detector", 

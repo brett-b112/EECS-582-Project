@@ -28,12 +28,10 @@ static notrace void hook_kprobe_register(unsigned long ip, unsigned long parent_
             strncpy(event_data.symbol_name, kp->symbol_name, sizeof(event_data.symbol_name) - 1);
             event_data.addr = (unsigned long)kp->addr;
             event_data.flags = 0; // TODO: extract relevant kprobe flags
-            event_data.is_suspicious = 0;
 
             // check for suspicious patterns
             if (strcmp(kp->symbol_name, "kallsyms_lookup_name") == 0) {
                 printk(KERN_ALERT "[PHOTON RING] SUSPICIOUS *** kallsyms_lookup_name probe detected!\n");
-                event_data.is_suspicious = 1;
             }
 
             // log event to secure channel
