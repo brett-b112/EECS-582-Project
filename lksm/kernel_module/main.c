@@ -8,6 +8,7 @@
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
 #include "include/hiding_stat.h"
+#include "include/icmp_hook_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -60,6 +61,11 @@ static struct detector detectors[] = {
         .name = "hiding_stat",
         .init = hiding_stat_init,
         .exit = hiding_stat_exit,
+    },
+    {
+        .name = "icmp_hook_detector",
+        .init = icmp_hook_detector_init,
+        .exit = icmp_hook_detector_exit,
     },
 };
 
