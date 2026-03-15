@@ -3,6 +3,9 @@
 #include <linux/init.h>
 #include "include/kprobe_detector.h"
 #include "include/become_root_detector.h"
+#include "include/bpf_hook_detector.h"
+// #include "include/hiding_stat.h"
+#include "include/tcp_hiding_detector.h"
 #include "include/crypto.h"
 #include "include/cdev_ch.h"
 
@@ -31,7 +34,24 @@ static struct detector detectors[] = {
         .name = "become_root_detector",
         .init = become_root_detector_init,
         .exit = become_root_detector_exit,
+    },
+    {
+        .name = "bpf_hook_detector",
+        .init = bpf_hook_detector_init,
+        .exit = bpf_hook_detector_exit,
+    },
+    {
+        .name = "tcp_hiding_detector",
+        .init = tcp_hiding_detector_init,
+        .exit = tcp_hiding_detector_exit,
     }
+    /*
+    {
+        .name = "hiding_stat",
+        .init = hiding_stat_init,
+        .exit = hiding_stat_exit,
+    },
+    */
     /*
     {
         .name = "taskstats_hook_detector", 

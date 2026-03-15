@@ -31,6 +31,7 @@
 #include <linux/sched.h>
 #include "../include/photon_ring_arch.h"
 #include "../include/bpf_hook_detector.h"
+#include "../include/event_manager.h"
 
 /* BPF-critical functions that the Singularity rootkit hooks via ftrace */
 static const char *bpf_watchlist[] = {
@@ -81,6 +82,7 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
     unsigned long remove;
     char buf[KSYM_SYMBOL_LEN];
     int i;
+    struct bpf_event_data event_data;
 
     /* skip calls made while we're setting up/tearing down */
     if (atomic_read(&self_hooking))
@@ -107,13 +109,40 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
         if (strcmp(buf, bpf_watchlist[i]) == 0) {
             printk(KERN_ALERT "[PHOTON RING] SUSPICIOUS *** ftrace hook on BPF function: %s (addr %lx) by process '%s' (PID %d)\n",
                    buf, target_ip, current->comm, current->pid);
+
+            // prepare event data
+            memset(&event_data, 0, sizeof(event_data));
+            strncpy(event_data.bpf_function, buf, sizeof(event_data.bpf_function));
+            event_data.addr = target_ip;
+            strncpy(event_data.process, current->comm, sizeof(event_data.process));
+            event_data.pid = current->pid;
+
+            // log event to secure channel
+            photon_log_event(PHOTON_EVENT_BPF_REG,
+            PHOTON_DETECTOR_SYSCALL,
+            &event_data,
+            sizeof(event_data));
+
             return 0;
         }
     }
 
     printk(KERN_INFO "[PHOTON RING] ftrace filter registered for: %s (addr %lx) by process '%s' (PID %d)\n",
            buf, target_ip, current->comm, current->pid);
+    
+    // prepare event data
+    memset(&event_data, 0, sizeof(event_data));
+    strncpy(event_data.bpf_function, buf, sizeof(event_data.bpf_function));
+    event_data.addr = target_ip;
+    strncpy(event_data.process, current->comm, sizeof(event_data.process));
+    event_data.pid = current->pid;
 
+    // log event to secure channel
+    photon_log_event(PHOTON_EVENT_BPF_REG,
+    PHOTON_DETECTOR_SYSCALL,
+    &event_data,
+    sizeof(event_data));
+    
     return 0;
 }
 

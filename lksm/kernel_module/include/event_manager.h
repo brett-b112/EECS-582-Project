@@ -12,6 +12,10 @@ enum photon_event_type {
     PHOTON_EVENT_PROCESS_HIDDEN = 4,
     PHOTON_EVENT_NETWORK_HOOK = 5,
     PHOTON_EVENT_PRIVESC = 6,
+    PHOTON_EVENT_BPF_REG = 7,
+    PHOTON_EVENT_STAT_PATH_HIDDEN = 8, // task in scheduler but /proc VFS entry missing
+    PHOTON_EVENT_STAT_NLINK_AUDIT = 9, // real inode nlink recorded for nlink-manipulation detection
+    PHOTON_EVENT_STAT_PID_AUDIT = 10,  // getpriority PID verified in tasklist (audit trail)
     PHOTON_EVENT_HEARTBEAT = 100,      // periodic keepalive
     PHOTON_EVENT_KEY_ROTATION = 101,   // key change event
 };
@@ -20,6 +24,7 @@ enum photon_event_type {
 enum photon_detector_id {
     PHOTON_DETECTOR_KPROBE = 1,
     PHOTON_DETECTOR_SYSCALL = 2,
+    PHOTON_DETECTOR_STAT = 3,
 };
 
 /* max event payload size */
@@ -49,8 +54,34 @@ struct becomeroot_event_data {
 } __attribute__((packed));
 
 struct bpf_event_data {
-    char 
-}
+    char bpf_function[64];
+    unsigned long addr;
+    char process[64];
+    u32 pid;
+} __attribute__((packed));
+
+struct tcp_hiding_event_data {
+    char  hooked_symbol[64];     // name of the tcp/udp function being hooked
+    unsigned long hooked_addr;   // resolved address of hooked_symbol
+    unsigned long caller_addr;   // ftrace_ops * passed by the rootkit (arg 0)
+    char  caller_comm[64];       // current->comm of the registering process
+    u32   caller_pid;            // current->pid
+} __attribute__((packed));
+
+struct stat_event_data {
+    char syscall_name[64];   // name of the intercepted syscall
+    char path[64];           // path argument (empty for getpriority)
+    char caller_comm[64];    // current->comm of the calling process
+    u32  caller_pid;         // current->pid
+    u32  target_pid;         // PID from /proc path or getpriority 'who' arg; 0 if N/A
+    u32  real_nlink;         // inode->i_nlink from kern_path; 0 if N/A
+    u32  flags;              // bitmask: see STAT_FLAG_* below
+} __attribute__((packed));
+
+/* Flags for stat_event_data.flags */
+#define STAT_FLAG_TASK_EXISTS  (1U << 0) // PID found in kernel task list
+#define STAT_FLAG_VFS_MISSING  (1U << 1) // /proc entry absent at VFS level
+#define STAT_FLAG_IS_DIR       (1U << 2) // path resolved to a directory
 
 /**
  * event_manager_init - Initialize the event management subsystem
