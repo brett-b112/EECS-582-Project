@@ -4,7 +4,7 @@
 #include <linux/ftrace.h>
 
 // Initiates the hiding_directory module. This will return 0 for empty or -1 if there is a file in path 
-// int hiding_directory_init(void)
+int hiding_directory_init(void)
 
 
 // Cleans up and unloads the hiding directory module 
