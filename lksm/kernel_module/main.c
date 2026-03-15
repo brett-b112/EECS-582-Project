@@ -7,11 +7,8 @@
 #include "include/tcp_hiding_detector.h"
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
-<<<<<<< Updated upstream
 #include "include/hiding_stat.h"
-=======
 #include "include/icmp_hook_detector.h"
->>>>>>> Stashed changes
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");

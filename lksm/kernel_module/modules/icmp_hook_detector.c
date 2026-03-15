@@ -4,16 +4,6 @@
 // Singularity's icmp.c uses ftrace_set_filter_ip to hook:
 //   icmp_rcv             -- intercepts ICMP echo requests looking for a magic
 //                           sequence number (1337) and spawns a reverse shell
-
-// This detector uses a kprobe on ftrace_set_filter_ip (rather than ftrace) and
-// fires a SUSPICIOUS alert whenever a caller tries to install a hook on icmp_rcv.
-
-// Why kprobes instead of ftrace?
-// ftrace refuses to hook its own infrastructure (ftrace_set_filter_ip returns
-// -EINVAL / -22 when you try). Kprobes inserts a breakpoint instruction directly
-// into the function prologue and has no such restriction.
-// See bpf_hook_detector.c for a detailed explanation of the same design decision.
-
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/kprobes.h>
@@ -33,10 +23,8 @@ static const char *icmp_hook_names[] = {
 
 static unsigned long icmp_hook_addrs[NUM_ICMP_TARGETS];
 
-/*
- * Self-detection avoidance: set to 1 while this module registers/unregisters
- * its own kprobe so the handler ignores those internal ftrace_set_filter_ip calls.
- */
+//  Self-detection avoidance: set to 1 while this module registers/unregisters
+//  its own kprobe so the handler ignores those internal ftrace_set_filter_ip calls.
 static atomic_t self_hooking = ATOMIC_INIT(0);
 
 static struct kprobe kp_icmp;
@@ -54,14 +42,7 @@ static unsigned long lookup_name(const char *name)
     return addr;
 }
 
-/*
- * Kprobe pre_handler — called every time ftrace_set_filter_ip is entered.
- *
- * ftrace_set_filter_ip(struct ftrace_ops *ops, unsigned long ip, int remove, int reset)
- *   arg 0 = ops
- *   arg 1 = ip   (the target address being hooked)
- *   arg 2 = remove flag
- */
+// Kprobe pre_handler — called every time ftrace_set_filter_ip is entered.
 static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 {
     unsigned long target_ip;
