@@ -78,7 +78,7 @@ static bool stack_has_legitimate_caller(unsigned long *entries, unsigned int nr)
     memset(buf, 0, sizeof(buf));
     stack_trace_snprint(buf, sizeof(buf), entries, nr, 0);
 
-    printk(KERN_INFO "[PHOTON RING] commit_creds stack trace:\n%s\n", buf);
+    // printk(KERN_INFO "[PHOTON RING] commit_creds stack trace:\n%s\n", buf);
 
     line_start = buf;
 
@@ -116,7 +116,7 @@ static bool stack_has_legitimate_caller(unsigned long *entries, unsigned int nr)
                 memcpy(sym, sym_start, sym_len);
                 sym[sym_len] = '\0';
 
-                printk(KERN_INFO "[PHOTON RING]   extracted sym: '%s'\n", sym);
+                // printk(KERN_INFO "[PHOTON RING]   extracted sym: '%s'\n", sym);
 
                 for (i = 0; i < ARRAY_SIZE(legitimate_callers); i++) {
                     if (strcmp(sym, legitimate_callers[i]) == 0)
