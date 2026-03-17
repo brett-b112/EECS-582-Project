@@ -25,6 +25,7 @@ enum photon_detector_id {
     PHOTON_DETECTOR_KPROBE = 1,
     PHOTON_DETECTOR_SYSCALL = 2,
     PHOTON_DETECTOR_STAT = 3,
+    PHOTON_DETECTOR_BPF = 4,
 };
 
 /* max event payload size */
@@ -58,6 +59,49 @@ struct bpf_event_data {
     unsigned long addr;
     char process[64];
     u32 pid;
+} __attribute__((packed));
+
+/*
+ * bpf_hook_event_data - rich payload for PHOTON_EVENT_BPF_REG events
+ *
+ * emitted by bpf_hook_detector when ftrace_set_filter_ip or
+ * register_ftrace_function is intercepted.
+ *
+ * severity values:
+ *   BPF_HOOK_SEV_INFO      - legitimate or unrecognised hook, logged for audit
+ *   BPF_HOOK_SEV_SUSPICIOUS - target is on the speculative watchlist
+ *   BPF_HOOK_SEV_ALERT     - target matches a confirmed rootkit hook
+ *   BPF_HOOK_SEV_CRITICAL  - ops callback lives outside known kernel/module text
+ */
+#define BPF_HOOK_SEV_INFO       0
+#define BPF_HOOK_SEV_SUSPICIOUS 1
+#define BPF_HOOK_SEV_ALERT      2
+#define BPF_HOOK_SEV_CRITICAL   3
+ 
+/*
+ * hook_source values — which kprobe fired this event:
+ *   BPF_HOOK_SRC_SET_FILTER   - intercepted at ftrace_set_filter_ip
+ *   BPF_HOOK_SRC_REGISTER_FN  - intercepted at register_ftrace_function
+ */
+#define BPF_HOOK_SRC_SET_FILTER  0
+#define BPF_HOOK_SRC_REGISTER_FN 1
+ 
+struct bpf_hook_event_data {
+    /* the function being hooked (from ftrace_set_filter_ip arg 1) */
+    char     target_symbol[64];      // sprint_symbol_no_offset of target_ip
+    unsigned long target_addr;       // raw address passed as the filter ip
+ 
+    /* the ftrace_ops callback that will run when the hook fires */
+    char     ops_callback_symbol[64]; // sprint_symbol_no_offset of ops->func;
+                                      // starts with "0x" if unresolved/anonymous
+    unsigned long ops_callback_addr;  // raw ops->func pointer
+ 
+    /* the process that called ftrace_set_filter_ip / register_ftrace_function */
+    char     caller_comm[64];
+    u32      caller_pid;
+ 
+    u8       severity;               // BPF_HOOK_SEV_* — set by the detector
+    u8       hook_source;            // BPF_HOOK_SRC_* — which kprobe fired
 } __attribute__((packed));
 
 struct tcp_hiding_event_data {
