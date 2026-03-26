@@ -1,6 +1,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include "include/reset_tainted_detector.h"
 #include "include/kprobe_detector.h"
 #include "include/taskstats_hook_detector.h"
 #include "include/hooking_audit_detector.h"
@@ -27,6 +28,16 @@ struct detector
 };
 
 static struct detector detectors[] = {
+    {
+        /*
+         * reset_tainted_detector must be FIRST so its kallsyms_lookup_name
+         * kprobe fires before kprobe_detector is active (avoiding a
+         * false-positive SUSPICIOUS alert during our own init).
+         */
+        .name = "reset_tainted_detector",
+        .init = reset_tainted_detector_init,
+        .exit = reset_tainted_detector_exit,
+    },
     {
         .name = "kprobe_detector",
         .init = kprobe_detector_init,
