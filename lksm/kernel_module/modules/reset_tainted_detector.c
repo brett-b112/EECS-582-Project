@@ -1,23 +1,5 @@
 // reset_tainted_detector.c
 // Detects rootkits that clear kernel taint flags and spawn hidden kernel threads.
-//
-// Targeted rootkit pattern ("zer0t" / reset_tainted module):
-//   1. Resolves tainted_mask via kallsyms_lookup_name
-//   2. Spawns a kernel thread named "zer0t" via kthread_run
-//   3. Thread sets *tainted_mask = 0, erasing all kernel taint flags
-//   4. Hides the thread's PID via add_hidden_pid()
-//
-// Detection vectors:
-//   A. ftrace hook on kthread_create_on_node:
-//      Fires at thread creation time; alerts on known-suspicious names.
-//
-//   B. Periodic workqueue (every 5s): reads tainted_mask directly and
-//      alerts when previously-set taint bits are cleared to 0.
-//
-//   C. Periodic task list scan (every 10s): walks init_task.tasks
-//      (the full kernel task list) to find threads with suspicious names
-//      that may be hidden from /proc via add_hidden_pid().
-
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/kprobes.h>
@@ -30,10 +12,6 @@
 #include "../include/photon_ring_arch.h"
 #include "../include/reset_tainted_detector.h"
 
-/* -----------------------------------------------------------------------
- * Shared state
- * ----------------------------------------------------------------------- */
-
 /* Signals to workqueue callbacks that the module is unloading */
 static bool detector_exiting;
 
@@ -43,16 +21,13 @@ static const char * const suspicious_names[] = {
     NULL /* sentinel */
 };
 
-/* -----------------------------------------------------------------------
+/* 
  * kallsyms_lookup_name resolution (kprobe trick)
  *
  * tainted_mask is a data symbol and cannot be reached via register_kprobe
  * (which only works on code).  We use the kprobe trick to get the address
  * of kallsyms_lookup_name itself, then call it to resolve tainted_mask.
- *
- * This detector is placed first in the main.c registry so this kprobe
- * fires before kprobe_detector is active, avoiding a false-positive alert.
- * ----------------------------------------------------------------------- */
+  */
 typedef unsigned long (*kallsyms_lookup_name_t)(const char *name);
 static kallsyms_lookup_name_t photon_kallsyms_lookup;
 
@@ -69,19 +44,9 @@ static int resolve_kallsyms_lookup_name(void)
     return 0;
 }
 
-/* -----------------------------------------------------------------------
+/* 
  * Vector A: ftrace hook on kthread_create_on_node
- * -----------------------------------------------------------------------
- * kthread_run(fn, data, namefmt) expands to kthread_create_on_node, which
- * takes:
- *   arg0 = threadfn   (function pointer)
- *   arg1 = data
- *   arg2 = node       (int — NUMA node)
- *   arg3 = namefmt    (const char * — thread name format string)
- *
- * The rootkit calls kthread_run(zt_thread, NULL, "zer0t"), so namefmt is
- * the literal string "zer0t" with no format specifiers.
- * ----------------------------------------------------------------------- */
+  */
 static struct ftrace_ops kthread_ops;
 static bool kthread_hook_active;
 
@@ -150,14 +115,9 @@ static void teardown_kthread_hook(void)
     kthread_hook_active = false;
 }
 
-/* -----------------------------------------------------------------------
+/* 
  * Vector B: Periodic tainted_mask monitoring
- *
- * We resolve tainted_mask via kallsyms_lookup_name (a data symbol, not
- * probeable with kprobes directly), record the initial value, and poll
- * every 5 seconds.  If any previously-set bits are cleared — especially
- * all bits cleared to 0 — that is the exact behaviour of the rootkit.
- * ----------------------------------------------------------------------- */
+ */
 static unsigned long *tainted_mask_ptr;
 static unsigned long taint_baseline;
 static struct delayed_work taint_check_work;
@@ -216,13 +176,9 @@ static void setup_taint_poll(void)
     schedule_delayed_work(&taint_check_work, 5 * HZ);
 }
 
-/* -----------------------------------------------------------------------
+/* 
  * Vector C: Periodic kernel task list scan
- *
- * The rootkit hides the "zer0t" kthread from /proc via add_hidden_pid(),
- * but the task_struct remains on init_task.tasks.  We walk the list under
- * RCU and alert on any task whose comm matches a suspicious name.
- * ----------------------------------------------------------------------- */
+ */
 static struct delayed_work thread_scan_work;
 
 static void thread_scan_fn(struct work_struct *work)
@@ -248,9 +204,6 @@ static void thread_scan_fn(struct work_struct *work)
         schedule_delayed_work(&thread_scan_work, 10 * HZ);
 }
 
-/* -----------------------------------------------------------------------
- * Init / Exit
- * ----------------------------------------------------------------------- */
 
 int __init reset_tainted_detector_init(void)
 {
