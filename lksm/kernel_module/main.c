@@ -10,6 +10,7 @@
 #include "include/hook_file_access.h"
 #include "include/hiding_stat.h"
 #include "include/icmp_hook_detector.h"
+#include "include/hiding_directory.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -72,6 +73,11 @@ static struct detector detectors[] = {
         .name = "hook_file_access",
         .init = file_access_detector_init,
         .exit = file_access_detector_exit,
+    },
+    {
+        .name = "hiding_directory",
+        .init = hiding_directory_init,
+        .exit = hiding_directory_exit,
     },
 };
 
