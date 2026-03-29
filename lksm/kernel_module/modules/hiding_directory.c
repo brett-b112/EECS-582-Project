@@ -17,6 +17,7 @@
 #include <linux/ftrace.h>
 #include <linux/fs.h>
 #include <linux/fdtable.h>
+#include <linux/file.h>
 #include <linux/dcache.h>
 #include <linux/uaccess.h>
 #include <linux/namei.h>
@@ -28,7 +29,7 @@
 
 #define MAX_PATH_LEN 256
 
-int hooks_installed = 0;
+int dir_hooks_installed = 0;
 
 /* Rate limiting */
 static DEFINE_RATELIMIT_STATE(dir_rl, HZ, 10);
@@ -220,7 +221,7 @@ int hiding_directory_init(void)
 
 	printk(KERN_INFO "[PHOTON RING] Initializing directory hiding detector\n");
 
-	hooks_installed = 0;
+	dir_hooks_installed = 0;
 
 	ret = setup_ftrace_filter(&getdents_ops, getdents_names);
 	if (!ret) {
@@ -229,7 +230,7 @@ int hiding_directory_init(void)
 		if (ret)
 			return ret;
 
-		hooks_installed++;
+		dir_hooks_installed++;
 		printk(KERN_INFO "[PHOTON RING] Monitoring getdents\n");
 	}
 
@@ -240,11 +241,11 @@ int hiding_directory_init(void)
 		if (ret)
 			goto err_cleanup;
 
-		hooks_installed++;
+		dir_hooks_installed++;
 		printk(KERN_INFO "[PHOTON RING] Monitoring getdents64\n");
 	}
 
-	if (hooks_installed == 0) {
+	if (dir_hooks_installed == 0) {
 		printk(KERN_ERR "[PHOTON RING] No directory hooks installed\n");
 		return -ENOENT;
 	}
@@ -255,10 +256,10 @@ int hiding_directory_init(void)
 
 err_cleanup:
 
-	if (hooks_installed >= 1)
+	if (dir_hooks_installed >= 1)
 		unregister_ftrace_function(&getdents_ops);
 
-	hooks_installed = 0;
+	dir_hooks_installed = 0;
 	return ret;
 }
 
@@ -266,13 +267,13 @@ void hiding_directory_exit(void)
 {
 	printk(KERN_INFO "[PHOTON RING] Removing directory hiding detector\n");
 
-	if (hooks_installed >= 2)
+	if (dir_hooks_installed >= 2)
 		unregister_ftrace_function(&getdents64_ops);
 
-	if (hooks_installed >= 1)
+	if (dir_hooks_installed >= 1)
 		unregister_ftrace_function(&getdents_ops);
 
-	hooks_installed = 0;
+	dir_hooks_installed = 0;
 
 	printk(KERN_INFO "[PHOTON RING] Directory hiding detector removed\n");
 }
