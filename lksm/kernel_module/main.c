@@ -7,6 +7,7 @@
 #include "include/tcp_hiding_detector.h"
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
+#include "include/hook_file_access.h"
 #include "include/hiding_stat.h"
 #include "include/icmp_hook_detector.h"
 
@@ -66,6 +67,11 @@ static struct detector detectors[] = {
         .name = "icmp_hook_detector",
         .init = icmp_hook_detector_init,
         .exit = icmp_hook_detector_exit,
+    },
+    {
+        .name = "hook_file_access",
+        .init = file_access_detector_init,
+        .exit = file_access_detector_exit,
     },
 };
 
