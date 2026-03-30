@@ -8,6 +8,7 @@
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
 #include "include/hiding_stat.h"
+#include "include/lkrg_bypass.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -60,6 +61,11 @@ static struct detector detectors[] = {
         .name = "hiding_stat",
         .init = hiding_stat_init,
         .exit = hiding_stat_exit,
+    },
+    {
+        .name = "lkrg_bypass",
+        .init = lkrg_bypass_init,
+        .exit = lkrg_bypass_exit,
     },
 };
 
