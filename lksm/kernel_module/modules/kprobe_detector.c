@@ -1,20 +1,18 @@
 #include <linux/kernel.h>
 #include <linux/kprobes.h>
 #include <linux/string.h>
-#include "../include/photon_ring_arch.h"
-#include "../include/kprobe_detector.h"
-#include "../include/event_manager.h"
+#include "photon_ring_arch.h"
+#include "kprobe_detector.h"
+#include "watchlists.h"
+#include "event_manager.h"
 
 static struct ftrace_ops ops;
 
 /*
  * Cached address of kallsyms_lookup_name, resolved once during init via the
- * kprobe bootstrap technique (register a kprobe by symbol name, read .addr,
- * unregister).  Exposed to other detectors through
- * kprobe_detector_get_kallsyms_addr() so they can hook the function via
- * ftrace without repeating the bootstrap or touching unexported symbols.
- *
- * Written once in kprobe_detector_init before any other detector runs;
+ * kprobe bootstrap technique.  Exposed via kprobe_detector_get_kallsyms_addr()
+ * so that kallsyms_detector can hook the function without repeating the
+ * bootstrap independently.  Written once before any other detector runs;
  * read-only thereafter — no locking needed.
  */
 static unsigned long g_kallsyms_addr = 0;
@@ -30,50 +28,48 @@ static notrace void hook_kprobe_register(unsigned long ip,
                                          struct ftrace_regs *fregs)
 {
     struct kprobe *kp;
-    struct kprobe_event_data event_data;
+    struct probe_hook_data payload;
+    u8 severity;
 
-    /* get first arg (struct kprobe *p) portably via ftrace_regs */
+    /* ignore registrations originating from within this module */
+    if (within_module(parent_ip, THIS_MODULE))
+        return;
+
     kp = (struct kprobe *)PHOTON_RING_GET_ARG(fregs, 0);
+    if (!kp || !kp->symbol_name)
+        return;
 
-    if (kp) {
-        if (kp->symbol_name) {
-            printk(KERN_ALERT "[PHOTON RING] Kprobe registered for symbol: %s\n",
-                   kp->symbol_name);
+    memset(&payload, 0, sizeof(payload));
+    strncpy(payload.symbol_name, kp->symbol_name,
+            sizeof(payload.symbol_name) - 1);
+    payload.target_addr  = (unsigned long)kp->addr;
+    payload.handler_addr = 0;
+    payload.entry_addr   = 0;
+    payload.maxactive    = 0;
+    payload.batch_count  = 1;
 
-            memset(&event_data, 0, sizeof(event_data));
-            strncpy(event_data.symbol_name, kp->symbol_name,
-                    sizeof(event_data.symbol_name) - 1);
-            event_data.addr  = (unsigned long)kp->addr;
-            event_data.flags = 0;
-
-            /* check for suspicious patterns */
-            if (strcmp(kp->symbol_name, "kallsyms_lookup_name") == 0) {
-                printk(KERN_ALERT
-                       "[PHOTON RING] SUSPICIOUS *** kallsyms_lookup_name "
-                       "probe detected!\n");
-            }
-
-            photon_log_event(PHOTON_EVENT_KPROBE_REG,
-                             PHOTON_DETECTOR_KPROBE,
-                             &event_data,
-                             sizeof(event_data));
-        }
+    if (photon_is_watchlisted(kp->symbol_name)) {
+        payload.flags |= PROBE_FLAG_WATCHLISTED;
+        severity = PHOTON_SEV_CRITICAL;
+        printk(KERN_ALERT
+               "[PHOTON RING] kprobe registered on watchlisted symbol: %s "
+               "(addr=0x%lx)\n",
+               kp->symbol_name, payload.target_addr);
+    } else {
+        severity = PHOTON_SEV_SUSPICIOUS;
+        printk(KERN_WARNING
+               "[PHOTON RING] kprobe registered: %s (addr=0x%lx)\n",
+               kp->symbol_name, payload.target_addr);
     }
+
+    photon_log_event(PHOTON_EVENT_PROBE_KPROBE,
+                     PHOTON_DETECTOR_KPROBE,
+                     severity,
+                     &payload, sizeof(payload));
 }
 
 int kprobe_detector_init(void)
 {
-    /*
-     * kprobe used solely as a symbol resolver — registered, address read,
-     * then immediately unregistered.  It is never meant to fire.
-     *
-     * This is the same bootstrap technique Singularity uses, which is why
-     * our own hook_kprobe_register fires during this init and logs a
-     * "kallsyms_lookup_name probe detected" alert.  That is expected; the
-     * within_module() filter in kallsyms_detector suppresses the equivalent
-     * alert there.  Here we simply accept the self-generated event as a
-     * harmless artifact of initialisation ordering.
-     */
     struct kprobe bootstrap_kp = {
         .symbol_name = "kallsyms_lookup_name",
     };
@@ -83,10 +79,11 @@ int kprobe_detector_init(void)
     printk(KERN_INFO "[PHOTON RING] initializing kprobe detector...\n");
 
     /*
-     * Resolve kallsyms_lookup_name.
-     * On kernels < 5.7 it is exported and &kallsyms_lookup_name would
-     * compile, but using the kprobe bootstrap unconditionally keeps the code
-     * path identical on all supported kernel versions.
+     * Resolve kallsyms_lookup_name via the kprobe bootstrap technique.
+     * kallsyms_lookup_name is not exported on kernels >= 5.7; using kprobe
+     * keeps the resolution path identical on all supported kernel versions.
+     * The within_module() guard in hook_kprobe_register suppresses the event
+     * that would otherwise fire here.
      */
     ret = register_kprobe(&bootstrap_kp);
     if (ret) {
@@ -95,51 +92,43 @@ int kprobe_detector_init(void)
                "(could not resolve kallsyms_lookup_name): %d\n", ret);
         return ret;
     }
-
     g_kallsyms_addr = (unsigned long)bootstrap_kp.addr;
     unregister_kprobe(&bootstrap_kp);
 
     printk(KERN_INFO "[PHOTON RING] resolved kallsyms_lookup_name at: 0x%lx\n",
            g_kallsyms_addr);
 
-    /* now hook register_kprobe to monitor future kprobe registrations */
     addr = (unsigned long)register_kprobe;
-
-    printk(KERN_INFO "[PHOTON RING] found register_kprobe at: 0x%lx\n", addr);
+    printk(KERN_INFO "[PHOTON RING] register_kprobe at: 0x%lx\n", addr);
 
     ops.func  = hook_kprobe_register;
     ops.flags = PHOTON_RING_FTRACE_FLAGS;
 
     ret = ftrace_set_filter_ip(&ops, addr, 0, 0);
     if (ret) {
-        printk(KERN_ERR "[PHOTON RING] failed to set ftrace filter: %d\n", ret);
+        printk(KERN_ERR "[PHOTON RING] ftrace_set_filter_ip failed: %d\n", ret);
         g_kallsyms_addr = 0;
         return ret;
     }
 
     ret = register_ftrace_function(&ops);
     if (ret) {
-        printk(KERN_ERR
-               "[PHOTON RING] failed to register ftrace function: %d\n", ret);
+        printk(KERN_ERR "[PHOTON RING] register_ftrace_function failed: %d\n", ret);
         ftrace_set_filter_ip(&ops, addr, 1, 0);
         g_kallsyms_addr = 0;
         return ret;
     }
 
-    printk(KERN_INFO "[PHOTON RING] successfully hooked register_kprobe\n");
-    printk(KERN_INFO "[PHOTON RING] now monitoring all kprobe registrations...\n");
-
+    printk(KERN_INFO "[PHOTON RING] kprobe detector active — "
+           "monitoring register_kprobe\n");
     return 0;
 }
 
 void kprobe_detector_exit(void)
 {
     printk(KERN_INFO "[PHOTON RING] removing kprobe detector...\n");
-
     unregister_ftrace_function(&ops);
     ftrace_set_filter_ip(&ops, 0, 1, 0);
-
     g_kallsyms_addr = 0;
-
     printk(KERN_INFO "[PHOTON RING] kprobe detector removed\n");
 }

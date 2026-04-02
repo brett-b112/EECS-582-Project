@@ -5,10 +5,12 @@
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
 // #include "include/hiding_stat.h"
-#include "include/tcp_hiding_detector.h"
+// #include "include/tcp_hiding_detector.h"
 #include "include/kallsyms_detector.h"
 #include "include/crypto.h"
 #include "include/cdev_ch.h"
+#include "include/kretprobe_detector.h"
+#include "include/ftrace_direct_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -32,6 +34,11 @@ static struct detector detectors[] = {
         .exit = kprobe_detector_exit,
     },
     {
+        .name = "kretprobe_detector",
+        .init = kretprobe_detector_init,
+        .exit = kretprobe_detector_exit,
+    },
+    {
         .name = "become_root_detector",
         .init = become_root_detector_init,
         .exit = become_root_detector_exit,
@@ -43,16 +50,23 @@ static struct detector detectors[] = {
         .exit = bpf_hook_detector_exit,
     },
     */
+   /*
     {
         .name = "tcp_hiding_detector",
         .init = tcp_hiding_detector_init,
         .exit = tcp_hiding_detector_exit,
     },
+    */
     {
         .name = "kallsyms_detector",
         .init = kallsyms_detector_init,
         .exit = kallsyms_detector_exit,
-    }
+    },
+    {
+        .name = "ftrace_direct_detector",
+        .init = ftrace_direct_detector_init,
+        .exit = ftrace_direct_detector_exit,
+    },
     /*
     {
         .name = "hiding_stat",

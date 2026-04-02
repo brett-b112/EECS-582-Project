@@ -366,22 +366,22 @@ int photon_rotate_key(void)
     printk(KERN_INFO "[PHOTON RING] Key rotation successful (now using rotation #%llu)\n",
            new_rotation);
     
-    // send key rotation event to userspace
-    // this tells userspace to derive the same new key using rotation number
+    /*
+     * Notify userspace of the rotation.  Encrypted with the OLD key;
+     * userspace decrypts it, reads new_rotation_num, derives the new key,
+     * and uses it for all subsequent frames.  Uses system_data so the
+     * Elasticsearch document has a consistent schema with heartbeats.
+     */
     {
-        struct {
-            u64 new_rotation_num;
-            u64 timestamp_ns;
-        } rotation_event;
-        
-        rotation_event.new_rotation_num = new_rotation;
-        rotation_event.timestamp_ns = ktime_get_real_ns();
-        
-        // note: this event is encrypted with the OLD key, but includes the new
-        // rotation number. Userspace will decrypt this, see the rotation number,
-        // and then derive the new key for subsequent messages.
-        photon_log_event(PHOTON_EVENT_KEY_ROTATION, 0,
-                        &rotation_event, sizeof(rotation_event));
+        struct system_data rot_event;
+        rot_event.uptime_ns        = ktime_get_ns();
+        rot_event.events_sent      = 0;   /* not tracked from crypto layer */
+        rot_event.events_dropped   = 0;
+        rot_event.new_rotation_num = new_rotation;
+
+        photon_log_event(PHOTON_EVENT_SYSTEM_KEY_ROTATION, 0,
+                         PHOTON_SEV_INFO,
+                         &rot_event, sizeof(rot_event));
     }
     
     return 0;

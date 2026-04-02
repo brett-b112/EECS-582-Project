@@ -7,7 +7,7 @@
 MODULE_NAME := photon_ring
 
 obj-m := $(MODULE_NAME).o
-$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o modules/become_root_detector.o modules/bpf_hook_detector.o modules/tcp_hiding_detector.o modules/kallsyms_detector.o comms/event_manager.o comms/crypto.o comms/cdev_ch.o
+$(MODULE_NAME)-objs := main.o modules/kprobe_detector.o modules/kretprobe_detector.o modules/ftrace_direct_detector.o modules/become_root_detector.o modules/bpf_hook_detector.o modules/kallsyms_detector.o comms/event_manager.o comms/crypto.o comms/cdev_ch.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd)
