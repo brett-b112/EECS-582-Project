@@ -36,6 +36,7 @@ int hooks_installed = 0;
 static DEFINE_RATELIMIT_STATE(stat_rl, HZ, 10);
 static DEFINE_RATELIMIT_STATE(nlink_rl, HZ, 5);
 static DEFINE_RATELIMIT_STATE(getprio_rl, HZ, 5);
+<<<<<<< Updated upstream
 
 /* ============================= */
 /* Cross-Verification Helpers    */
@@ -300,6 +301,298 @@ static struct ftrace_ops stat_si_ops = {
 	.flags = PHOTON_RING_FTRACE_FLAGS,
 };
 
+=======
+/* ============================= */
+/* Threat Event System           */
+/* ============================= */
+
+enum threat_event_type {
+	EVT_PROC_VFS_MISMATCH,
+	EVT_PID_VERIFIED,
+	EVT_NLINK_AUDIT,
+};
+
+struct photon_event {
+	u64 timestamp;
+	u32 pid;
+	char comm[TASK_COMM_LEN];
+
+	enum threat_event_type type;
+
+	char path[256];
+	int target_pid;
+	unsigned int nlink;
+};
+/* ============================= */
+/* Cross-Verification Helpers    */
+/* ============================= */
+
+/*
+ * Extract numeric PID from a /proc/[pid]... path.
+ * Returns the PID on success, -1 if not a /proc PID path.
+ */
+static int extract_proc_pid(const char *path)
+{
+	const char *p;
+	char buf[16] = {0};
+	int j = 0, pid;
+
+	if (strncmp(path, "/proc/", 6) != 0)
+		return -1;
+
+	p = path + 6;
+	while (j < (int)sizeof(buf) - 1 && p[j] >= '0' && p[j] <= '9') {
+		buf[j] = p[j];
+		j++;
+	}
+	if (j == 0)
+		return -1;
+
+	buf[j] = '\0';
+	if (kstrtoint(buf, 10, &pid) < 0)
+		return -1;
+	return pid;
+}
+
+/*
+ * Check if a PID has a real task_struct in the kernel task list.
+ * This bypasses any syscall-level hiding since it queries the
+ * scheduler data structures directly.
+ */
+static bool photon_pid_has_task(pid_t nr)
+{
+	struct pid *pid_struct;
+	struct task_struct *task;
+	bool exists;
+
+	rcu_read_lock();
+	pid_struct = find_vpid(nr);
+	task = pid_struct ? pid_task(pid_struct, PIDTYPE_PID) : NULL;
+	exists = (task != NULL);
+	rcu_read_unlock();
+
+	return exists;
+}
+
+/*
+ * Verify a path exists at VFS level via kern_path.
+ * Returns true if the path resolves successfully.
+ * This bypasses syscall-level hooks (the rootkit only intercepts
+ * stat/lstat/statx syscalls, not internal VFS lookups).
+ */
+static bool path_exists_in_vfs(const char *path)
+{
+	struct path p;
+	int ret = kern_path(path, LOOKUP_FOLLOW, &p);
+	if (ret == 0) {
+		path_put(&p);
+		return true;
+	}
+	return false;
+}
+
+/*
+ * Get the real inode nlink count for a path, bypassing syscall hooks.
+ * Returns the nlink count, or 0 on error.
+ * Used to detect nlink manipulation: the rootkit modifies the stat
+ * result in userspace but cannot change the actual inode.
+ */
+static unsigned int get_real_nlink(const char *path, bool *is_dir)
+{
+	struct path p;
+	unsigned int nlink = 0;
+
+	*is_dir = false;
+	if (kern_path(path, LOOKUP_FOLLOW, &p) == 0) {
+		struct inode *inode = d_inode(p.dentry);
+		if (inode) {
+			nlink = inode->i_nlink;
+			*is_dir = S_ISDIR(inode->i_mode);
+		}
+		path_put(&p);
+	}
+	return nlink;
+}
+
+/* ============================= */
+/* Stat Path Analysis            */
+/* ============================= */
+
+/*
+ * Analyze a path being stat'd for hiding anomalies.
+ * Called at syscall entry time with the path argument.
+ *
+ * Detection logic:
+ * - For /proc/[pid] paths: verify PID exists in task list. If it does,
+ *   log an audit entry. If the rootkit later returns ENOENT, this entry
+ *   proves the PID was valid (cross-reference with userspace observations).
+ * - For directories: report real inode nlink count. If the rootkit reduces
+ *   nlink in the stat result, comparing with this audit entry reveals the
+ *   manipulation.
+ */
+static notrace void analyze_stat_path(const char *path, const char *syscall_name)
+{
+	int proc_pid;
+	unsigned int real_nlink;
+	bool is_dir;
+
+	/* Check /proc PID paths for hidden process detection */
+	proc_pid = extract_proc_pid(path);
+	if (proc_pid > 0) {
+		bool task_exists = photon_pid_has_task(proc_pid);
+		bool vfs_exists = path_exists_in_vfs(path);
+
+		if (task_exists && !vfs_exists) {
+			/*
+			 * CRITICAL: Task exists in scheduler but /proc entry
+			 * is missing at VFS level. This indicates VFS-level
+			 * proc hiding (different from syscall-level hiding).
+			 */
+			emit_photon_event(EVT_PROC_VFS_MISMATCH, path, proc_pid, 0);
+		} else if (task_exists && vfs_exists) {
+			/*
+			 * PID and /proc entry both exist. If the rootkit's
+			 * syscall hook returns ENOENT for this path, this
+			 * log entry proves the path was valid.
+			 */
+			if (__ratelimit(&stat_rl)) {
+				printk(KERN_INFO
+					"[PHOTON RING] STAT_AUDIT: %s(\"%s\") by PID %d (%s) - target PID %d verified in tasklist and VFS\n",
+					syscall_name, path, current->pid,
+					current->comm, proc_pid);
+			}
+		}
+		return;
+	}
+
+	/*
+	 * For non-/proc paths: check nlink integrity on directories.
+	 * The rootkit's adjust_user_stat_nlink() reduces nlink to hide
+	 * subdirectories. By logging the real inode nlink here, we create
+	 * evidence of manipulation.
+	 */
+	real_nlink = get_real_nlink(path, &is_dir);
+	if (is_dir && real_nlink > 0 && __ratelimit(&nlink_rl)) {
+		emit_photon_event(EVT_NLINK_AUDIT, path, -1, real_nlink);
+	}
+}
+static void emit_photon_event(enum threat_event_type type,
+			     const char *path,
+			     int target_pid,
+			     unsigned int nlink)
+{
+	printk(KERN_INFO
+		"[PHOTON_EVENT] type=%d pid=%d comm=%s target_pid=%d nlink=%u path=%s\n",
+		type,
+		current->pid,
+		current->comm,
+		target_pid,
+		nlink,
+		path ? path : "NULL");
+}
+/* ============================= */
+/* Ftrace Hook Callbacks         */
+/* ============================= */
+
+/*
+ * Hook for stat/lstat/newstat/newlstat:
+ * Syscall signature: sys_stat(const char __user *filename, ...)
+ * pathname is the first syscall argument -> regs->di on x86_64
+ */
+static notrace void hook_stat_di(unsigned long ip, unsigned long parent_ip,
+				 struct ftrace_ops *ops,
+				 struct ftrace_regs *fregs)
+{
+	struct pt_regs *regs;
+	const char __user *pathname;
+	char kbuf[MAX_PATH_LEN];
+
+	regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
+	if (!regs)
+		return;
+
+	pathname = (const char __user *)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
+	if (!pathname)
+		return;
+
+	if (strncpy_from_user(kbuf, pathname, sizeof(kbuf)) <= 0)
+		return;
+	kbuf[MAX_PATH_LEN - 1] = '\0';
+
+	analyze_stat_path(kbuf, "stat");
+}
+
+/*
+ * Hook for newfstatat/statx:
+ * Syscall signature: sys_newfstatat(int dfd, const char __user *filename, ...)
+ * pathname is the second syscall argument -> regs->si on x86_64
+ */
+static notrace void hook_stat_si(unsigned long ip, unsigned long parent_ip,
+				 struct ftrace_ops *ops,
+				 struct ftrace_regs *fregs)
+{
+	struct pt_regs *regs;
+	const char __user *pathname;
+	char kbuf[MAX_PATH_LEN];
+
+	regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
+	if (!regs)
+		return;
+
+	pathname = (const char __user *)PHOTON_RING_KPROBE_GET_ARG(regs, 1);
+	if (!pathname)
+		return;
+
+	if (strncpy_from_user(kbuf, pathname, sizeof(kbuf)) <= 0)
+		return;
+	kbuf[MAX_PATH_LEN - 1] = '\0';
+
+	analyze_stat_path(kbuf, "fstatat");
+}
+
+/*
+ * Hook for getpriority:
+ * Syscall signature: sys_getpriority(int which, int who)
+ * The rootkit returns -ESRCH for hidden PIDs when which == PRIO_PROCESS.
+ * We verify the PID actually exists to create an audit trail.
+ */
+static notrace void hook_getpriority_cb(unsigned long ip, unsigned long parent_ip,
+					struct ftrace_ops *ops,
+					struct ftrace_regs *fregs)
+{
+	struct pt_regs *regs;
+	int which, who;
+
+	regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
+	if (!regs)
+		return;
+
+	which = (int)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
+	who = (int)PHOTON_RING_KPROBE_GET_ARG(regs, 1);
+
+	if (which != PRIO_PROCESS || who <= 0)
+		return;
+
+	if (photon_pid_has_task(who) && __ratelimit(&getprio_rl)) {
+		emit_photon_event(EVT_PID_VERIFIED, NULL, who, 0);
+	}
+}
+
+/* ============================= */
+/* Ftrace Ops Structures         */
+/* ============================= */
+
+static struct ftrace_ops stat_di_ops = {
+	.func = hook_stat_di,
+	.flags = PHOTON_RING_FTRACE_FLAGS,
+};
+
+static struct ftrace_ops stat_si_ops = {
+	.func = hook_stat_si,
+	.flags = PHOTON_RING_FTRACE_FLAGS,
+};
+
+>>>>>>> Stashed changes
 static struct ftrace_ops getpriority_ops = {
 	.func = hook_getpriority_cb,
 	.flags = PHOTON_RING_FTRACE_FLAGS,
@@ -486,4 +779,8 @@ void hiding_stat_exit(void)
 
 	hooks_installed = 0;
 	printk(KERN_INFO "[PHOTON RING] Stat hiding detector removed\n");
+<<<<<<< Updated upstream
 }
+=======
+}
+>>>>>>> Stashed changes
