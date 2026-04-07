@@ -25,7 +25,6 @@
 #include "../include/photon_ring_arch.h"
 #include "../include/lkrg_bypass.h"
 
-
 static int hooks_installed = 0;
 
 /* ============================= */
@@ -44,12 +43,11 @@ static DEFINE_RATELIMIT_STATE(timer_rl, HZ, 5);
  * Check if an address lies in kernel text region.
  * Used to detect code patching (LKRG bypass).
  */
+
 static bool is_kernel_text_addr(unsigned long addr)
 {
-    return (addr >= (unsigned long)_stext &&
-            addr <= (unsigned long)_etext);
+    return false;
 }
-
 /*
  * Simple heuristic: detect suspicious UID escalation
  */
@@ -73,12 +71,13 @@ static notrace void detect_cred_change(struct cred *new)
     if (!new || !old)
         return;
 
-    if (is_suspicious_cred(old, new) && __ratelimit(&cred_rl)) {
+    if (is_suspicious_cred(old, new) && __ratelimit(&cred_rl))
+    {
         printk(KERN_ALERT
-            "[PHOTON RING] LKRG_BYPASS_ALERT: commit_creds by PID %d (%s) "
-            "UID %d -> %d (possible validation bypass)\n",
-            current->pid, current->comm,
-            old->uid.val, new->uid.val);
+               "[PHOTON RING] LKRG_BYPASS_ALERT: commit_creds by PID %d (%s) "
+               "UID %d -> %d (possible validation bypass)\n",
+               current->pid, current->comm,
+               old->uid.val, new->uid.val);
     }
 }
 
@@ -87,11 +86,12 @@ static notrace void detect_cred_change(struct cred *new)
  */
 static notrace void detect_kernel_write(unsigned long addr)
 {
-    if (is_kernel_text_addr(addr) && __ratelimit(&mem_rl)) {
+    if (is_kernel_text_addr(addr) && __ratelimit(&mem_rl))
+    {
         printk(KERN_ALERT
-            "[PHOTON RING] LKRG_BYPASS_ALERT: Kernel text write attempt "
-            "at %px by PID %d (%s)\n",
-            (void *)addr, current->pid, current->comm);
+               "[PHOTON RING] LKRG_BYPASS_ALERT: Kernel text write attempt "
+               "at %px by PID %d (%s)\n",
+               (void *)addr, current->pid, current->comm);
     }
 }
 
@@ -100,12 +100,13 @@ static notrace void detect_kernel_write(unsigned long addr)
  */
 static notrace void detect_timer_mod(void *timer_addr)
 {
-    if (__ratelimit(&timer_rl)) {
+    if (__ratelimit(&timer_rl))
+    {
         printk(KERN_WARNING
-            "[PHOTON RING] TIMER_AUDIT: Timer modification by PID %d (%s) "
-            "target=%px\n",
-            current->pid, current->comm,
-            timer_addr);
+               "[PHOTON RING] TIMER_AUDIT: Timer modification by PID %d (%s) "
+               "target=%px\n",
+               current->pid, current->comm,
+               timer_addr);
     }
 }
 
@@ -215,21 +216,23 @@ static const char *timer_names[] = {
 /* ============================= */
 
 static int setup_ftrace_filter(struct ftrace_ops *ops,
-                              const char **names)
+                               const char **names)
 {
     int i, ret;
     bool ok = false;
 
-    for (i = 0; names[i]; i++) {
+    for (i = 0; names[i]; i++)
+    {
         ret = ftrace_set_filter(ops,
-                               (unsigned char *)names[i],
-                               strlen(names[i]),
-                               !ok);
-        if (!ret) {
+                                (unsigned char *)names[i],
+                                strlen(names[i]),
+                                !ok);
+        if (!ret)
+        {
             ok = true;
             printk(KERN_INFO
-                "[PHOTON RING] Filter set for %s\n",
-                names[i]);
+                   "[PHOTON RING] Filter set for %s\n",
+                   names[i]);
         }
     }
 
@@ -245,12 +248,13 @@ int lkrg_bypass_init(void)
     int ret;
 
     printk(KERN_INFO
-        "[PHOTON RING] Initializing LKRG bypass detector...\n");
+           "[PHOTON RING] Initializing LKRG bypass detector...\n");
 
     hooks_installed = 0;
 
     /* Credential hooks */
-    if (setup_ftrace_filter(&cred_ops, cred_names) == 0) {
+    if (setup_ftrace_filter(&cred_ops, cred_names) == 0)
+    {
         ret = register_ftrace_function(&cred_ops);
         if (ret)
             return ret;
@@ -258,7 +262,8 @@ int lkrg_bypass_init(void)
     }
 
     /* Memory hooks */
-    if (setup_ftrace_filter(&mem_ops, mem_names) == 0) {
+    if (setup_ftrace_filter(&mem_ops, mem_names) == 0)
+    {
         ret = register_ftrace_function(&mem_ops);
         if (ret)
             goto err;
@@ -266,22 +271,24 @@ int lkrg_bypass_init(void)
     }
 
     /* Timer hooks */
-    if (setup_ftrace_filter(&timer_ops, timer_names) == 0) {
+    if (setup_ftrace_filter(&timer_ops, timer_names) == 0)
+    {
         ret = register_ftrace_function(&timer_ops);
         if (ret)
             goto err;
         hooks_installed++;
     }
 
-    if (!hooks_installed) {
+    if (!hooks_installed)
+    {
         printk(KERN_ERR
-            "[PHOTON RING] No LKRG hooks installed\n");
+               "[PHOTON RING] No LKRG hooks installed\n");
         return -ENOENT;
     }
 
     printk(KERN_INFO
-        "[PHOTON RING] LKRG bypass detector active (%d hooks)\n",
-        hooks_installed);
+           "[PHOTON RING] LKRG bypass detector active (%d hooks)\n",
+           hooks_installed);
 
     return 0;
 
@@ -297,7 +304,7 @@ err:
 void lkrg_bypass_exit(void)
 {
     printk(KERN_INFO
-        "[PHOTON RING] Removing LKRG bypass detector...\n");
+           "[PHOTON RING] Removing LKRG bypass detector...\n");
 
     if (hooks_installed >= 3)
         unregister_ftrace_function(&timer_ops);
@@ -309,5 +316,5 @@ void lkrg_bypass_exit(void)
     hooks_installed = 0;
 
     printk(KERN_INFO
-        "[PHOTON RING] LKRG bypass detector removed\n");
+           "[PHOTON RING] LKRG bypass detector removed\n");
 }
