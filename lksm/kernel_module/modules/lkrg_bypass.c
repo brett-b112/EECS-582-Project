@@ -31,7 +31,7 @@ static int hooks_installed = 0;
 /* Rate Limiting                 */
 /* ============================= */
 
-static DEFINE_RATELIMIT_STATE(mem_rl, HZ, 5);
+// static DEFINE_RATELIMIT_STATE(mem_rl, HZ, 5);
 static DEFINE_RATELIMIT_STATE(cred_rl, HZ, 10);
 static DEFINE_RATELIMIT_STATE(timer_rl, HZ, 5);
 
@@ -44,10 +44,10 @@ static DEFINE_RATELIMIT_STATE(timer_rl, HZ, 5);
  * Used to detect code patching (LKRG bypass).
  */
 
-static bool is_kernel_text_addr(unsigned long addr)
-{
-    return false;
-}
+// static bool is_kernel_text_addr(unsigned long addr)
+// {
+//     return false;
+// }
 /*
  * Simple heuristic: detect suspicious UID escalation
  */
@@ -66,7 +66,7 @@ static bool is_suspicious_cred(const struct cred *old,
  */
 static notrace void detect_cred_change(struct cred *new)
 {
-    const struct cred *old = current->cred;
+    const struct cred *old = current_cred();
 
     if (!new || !old)
         return;
@@ -84,16 +84,16 @@ static notrace void detect_cred_change(struct cred *new)
 /*
  * Detect kernel memory modification attempts
  */
-static notrace void detect_kernel_write(unsigned long addr)
-{
-    if (is_kernel_text_addr(addr) && __ratelimit(&mem_rl))
-    {
-        printk(KERN_ALERT
-               "[PHOTON RING] LKRG_BYPASS_ALERT: Kernel text write attempt "
-               "at %px by PID %d (%s)\n",
-               (void *)addr, current->pid, current->comm);
-    }
-}
+// static notrace void detect_kernel_write(unsigned long addr)
+// {
+//     if (is_kernel_text_addr(addr) && __ratelimit(&mem_rl))
+//     {
+//         printk(KERN_ALERT
+//                "[PHOTON RING] LKRG_BYPASS_ALERT: Kernel text write attempt "
+//                "at %px by PID %d (%s)\n",
+//                (void *)addr, current->pid, current->comm);
+//     }
+// }
 
 /*
  * Detect watchdog/timer tampering
@@ -136,21 +136,21 @@ static notrace void hook_commit_creds(unsigned long ip,
 /*
  * set_memory_rw / text_poke equivalent detection
  */
-static notrace void hook_mem_write(unsigned long ip,
-                                   unsigned long parent_ip,
-                                   struct ftrace_ops *ops,
-                                   struct ftrace_regs *fregs)
-{
-    struct pt_regs *regs;
-    unsigned long addr;
+// static notrace void hook_mem_write(unsigned long ip,
+//                                    unsigned long parent_ip,
+//                                    struct ftrace_ops *ops,
+//                                    struct ftrace_regs *fregs)
+// {
+//     struct pt_regs *regs;
+//     unsigned long addr;
 
-    regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
-    if (!regs)
-        return;
+//     regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
+//     if (!regs)
+//         return;
 
-    addr = (unsigned long)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
-    detect_kernel_write(addr);
-}
+//     addr = (unsigned long)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
+//     // detect_kernel_write(addr);
+// }
 
 /*
  * timer deletion/modification hook
@@ -180,10 +180,10 @@ static struct ftrace_ops cred_ops = {
     .flags = PHOTON_RING_FTRACE_FLAGS,
 };
 
-static struct ftrace_ops mem_ops = {
-    .func = hook_mem_write,
-    .flags = PHOTON_RING_FTRACE_FLAGS,
-};
+// static struct ftrace_ops mem_ops = {
+//     .func = hook_mem_write,
+//     .flags = PHOTON_RING_FTRACE_FLAGS,
+// };
 
 static struct ftrace_ops timer_ops = {
     .func = hook_timer,
@@ -199,11 +199,11 @@ static const char *cred_names[] = {
     NULL,
 };
 
-static const char *mem_names[] = {
-    "text_poke",
-    "set_memory_rw",
-    NULL,
-};
+// static const char *mem_names[] = {
+//     "text_poke",
+//     "set_memory_rw",
+//     NULL,
+// };
 
 static const char *timer_names[] = {
     "del_timer",
@@ -262,13 +262,13 @@ int lkrg_bypass_init(void)
     }
 
     /* Memory hooks */
-    if (setup_ftrace_filter(&mem_ops, mem_names) == 0)
-    {
-        ret = register_ftrace_function(&mem_ops);
-        if (ret)
-            goto err;
-        hooks_installed++;
-    }
+    // if (setup_ftrace_filter(&mem_ops, mem_names) == 0)
+    // {
+    //     ret = register_ftrace_function(&mem_ops);
+    //     if (ret)
+    //         goto err;
+    //     hooks_installed++;
+    // }
 
     /* Timer hooks */
     if (setup_ftrace_filter(&timer_ops, timer_names) == 0)
@@ -293,8 +293,8 @@ int lkrg_bypass_init(void)
     return 0;
 
 err:
-    if (hooks_installed >= 2)
-        unregister_ftrace_function(&mem_ops);
+    // if (hooks_installed >= 2)
+    //     unregister_ftrace_function(&mem_ops);
     if (hooks_installed >= 1)
         unregister_ftrace_function(&cred_ops);
     hooks_installed = 0;
@@ -308,8 +308,8 @@ void lkrg_bypass_exit(void)
 
     if (hooks_installed >= 3)
         unregister_ftrace_function(&timer_ops);
-    if (hooks_installed >= 2)
-        unregister_ftrace_function(&mem_ops);
+    // if (hooks_installed >= 2)
+    //     unregister_ftrace_function(&mem_ops);
     if (hooks_installed >= 1)
         unregister_ftrace_function(&cred_ops);
 
