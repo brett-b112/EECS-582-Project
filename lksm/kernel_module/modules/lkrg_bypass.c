@@ -45,7 +45,7 @@ static inline const char *severity_to_str(severity_t sev)
         return "CRITICAL";
     case SEV_HIGH:
         return "HIGH";
-    case SEV_MEDIUM:
+    case SEV_MEDIUM: 
         return "MEDIUM";
     case SEV_LOW:
         return "LOW";
