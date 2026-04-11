@@ -24,9 +24,71 @@
 #include <linux/workqueue.h>
 #include "../include/photon_ring_arch.h"
 #include "../include/lkrg_bypass.h"
+/* ============================= */
+/* Severity & MITRE Mapping      */
+/* ============================= */
 
+typedef enum
+{
+    SEV_INFO = 0,
+    SEV_LOW,
+    SEV_MEDIUM,
+    SEV_HIGH,
+    SEV_CRITICAL
+} severity_t;
+
+static inline const char *severity_to_str(severity_t sev)
+{
+    switch (sev)
+    {
+    case SEV_CRITICAL:
+        return "CRITICAL";
+    case SEV_HIGH:
+        return "HIGH";
+    case SEV_MEDIUM:
+        return "MEDIUM";
+    case SEV_LOW:
+        return "LOW";
+    default:
+        return "INFO";
+    }
+}
+/* MITRE ATT&CK Mappings */
+#define MITRE_PRIV_ESC "T1548"  /* Abuse Elevation Control */
+#define MITRE_DEF_EVADE "T1562" /* Impair Defenses */
+
+/* Escalation tracking */
+static atomic_t suspicious_events = ATOMIC_INIT(0);
+// int freq = atomic_inc_return(&suspicious_events);
 static int hooks_installed = 0;
+static severity_t calc_severity(bool cred_escalation,
+                                bool timer_abuse,
+                                int freq)
+{
+    if (cred_escalation && freq > 3)
+        return SEV_CRITICAL;
+    if (cred_escalation)
+        return SEV_HIGH;
+    if (timer_abuse)
+        return SEV_MEDIUM;
+    return SEV_LOW;
+}
 
+// esclation scoring
+static int calc_confidence(bool cred_escalation,
+                           bool timer_abuse)
+{
+    int score = 0;
+
+    if (cred_escalation)
+        score += 70;
+    if (timer_abuse)
+        score += 40;
+
+    if (score > 100)
+        score = 100;
+    return score;
+}
 /* ============================= */
 /* Rate Limiting                 */
 /* ============================= */
@@ -66,19 +128,28 @@ static bool is_suspicious_cred(const struct cred *old,
  */
 static notrace void detect_cred_change(struct cred *new)
 {
-    const struct cred *old = current_cred();
-
-    if (!new || !old)
+    if (!new)
         return;
 
-    if (is_suspicious_cred(old, new) && __ratelimit(&cred_rl))
-    {
-        printk(KERN_ALERT
-               "[PHOTON RING] LKRG_BYPASS_ALERT: commit_creds by PID %d (%s) "
-               "UID %d -> %d (possible validation bypass)\n",
-               current->pid, current->comm,
-               old->uid.val, new->uid.val);
+    int freq = atomic_inc_return(&suspicious_events);
+    severity_t sev = calc_severity(true, false, freq);
+    int confidence = calc_confidence(true, false);
+
+    /* Downgrade expected privilege escalation */
+    if (!strcmp(current->comm, "sudo") ||
+        !strcmp(current->comm, "su")) {
+        sev = SEV_INFO;
+        confidence = 10;
     }
+
+    printk(KERN_ALERT
+           "[PHOTON][%s][conf=%d%%][MITRE=%s] commit_creds PID=%d (%s) new_uid=%d\n",
+           severity_to_str(sev),
+           confidence,
+           MITRE_PRIV_ESC,
+           current->pid,
+           current->comm,
+           new->uid.val);
 }
 
 /*
@@ -100,12 +171,27 @@ static notrace void detect_cred_change(struct cred *new)
  */
 static notrace void detect_timer_mod(void *timer_addr)
 {
+    severity_t sev;
+    int confidence;
+
     if (__ratelimit(&timer_rl))
     {
+
+        // suspicious_events++;
+
+        // sev = calc_severity(false, true, suspicious_events);
+        int freq = atomic_inc_return(&suspicious_events);
+
+        sev = calc_severity(false, true, freq);
+        confidence = calc_confidence(false, true);
+
         printk(KERN_WARNING
-               "[PHOTON RING] TIMER_AUDIT: Timer modification by PID %d (%s) "
-               "target=%px\n",
-               current->pid, current->comm,
+               "[PHOTON][%s][conf=%d%%][MITRE=%s] Timer modification PID=%d (%s) target=%px\n",
+               severity_to_str(sev),
+               confidence,
+               MITRE_DEF_EVADE,
+               current->pid,
+               current->comm,
                timer_addr);
     }
 }
