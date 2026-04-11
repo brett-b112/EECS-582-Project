@@ -5,7 +5,7 @@ MODULE_NAME := photon_ring
 
 # Object files
 obj-m := $(MODULE_NAME).o
-$(MODULE_NAME)-objs := main.o modules/reset_tainted_detector.o modules/kprobe_detector.o modules/hooking_audit_detector.o modules/taskstats_hook_detector.o modules/tcp_hiding_detector.o modules/become_root_detector.o modules/bpf_hook_detector.o modules/hiding_stat.o modules/icmp_hook_detector.o modules/hook_file_access.o modules/hiding_directory.o
+$(MODULE_NAME)-objs := main.o modules/reset_tainted_detector.o modules/kprobe_detector.o modules/hooking_audit_detector.o modules/taskstats_hook_detector.o modules/tcp_hiding_detector.o modules/become_root_detector.o modules/bpf_hook_detector.o modules/hiding_stat.o modules/icmp_hook_detector.o modules/hook_file_access.o modules/hiding_directory.o modules/trace_pid_detector.o modules/hiding_readlink_detector.o modules/hiding_chdir_detector.o modules/hooks_write_detector.o modules/clear_taint_dmesg_detector.o modules/lkrg_bypass_detector.o
 
 # Kernel build directory
 KDIR ?= /lib/modules/$(shell uname -r)/build

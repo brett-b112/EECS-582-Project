@@ -12,6 +12,12 @@
 #include "include/hiding_stat.h"
 #include "include/icmp_hook_detector.h"
 #include "include/hiding_directory.h"
+#include "include/trace_pid_detector.h"
+#include "include/hiding_readlink_detector.h"
+#include "include/hiding_chdir_detector.h"
+#include "include/hooks_write_detector.h"
+#include "include/clear_taint_dmesg_detector.h"
+#include "include/lkrg_bypass_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -86,6 +92,36 @@ static struct detector detectors[] = {
         .name = "hiding_directory",
         .init = hiding_directory_init,
         .exit = hiding_directory_exit,
+    },
+    {
+        .name = "trace_pid_detector",
+        .init = trace_pid_detector_init,
+        .exit = trace_pid_detector_exit,
+    },
+    {
+        .name = "hiding_readlink_detector",
+        .init = hiding_readlink_detector_init,
+        .exit = hiding_readlink_detector_exit,
+    },
+    {
+        .name = "hiding_chdir_detector",
+        .init = hiding_chdir_detector_init,
+        .exit = hiding_chdir_detector_exit,
+    },
+    {
+        .name = "hooks_write_detector",
+        .init = hooks_write_detector_init,
+        .exit = hooks_write_detector_exit,
+    },
+    {
+        .name = "clear_taint_dmesg_detector",
+        .init = clear_taint_dmesg_detector_init,
+        .exit = clear_taint_dmesg_detector_exit,
+    },
+    {
+        .name = "lkrg_bypass_detector",
+        .init = lkrg_bypass_detector_init,
+        .exit = lkrg_bypass_detector_exit,
     },
 };
 
