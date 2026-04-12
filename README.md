@@ -1,7 +1,7 @@
 # PHOTON RING
 <img width="500" height="500" alt="photon_ring_logo" src="https://github.com/user-attachments/assets/4c139850-ec36-4381-98c4-fa9b5222bb18" />
 
-A kernel module that detects rootkit-style activity (kprobe hooking, audit evasion, taskstats manipulation, privilege escalation) and streams detections to Elasticsearch for real-time visualization in Kibana.
+A kernel module that detects rootkit-style activity (kprobe hooking, audit evasion, taskstats manipulation, privilege escalation, BPF/TCP/ICMP hook detection, taint clearing, PID/file/directory hiding, ftrace tampering, and LKRG bypass attempts) and streams severity-classified detections to Elasticsearch for real-time visualization in Kibana.
 
 ## Project Structure
 
@@ -11,19 +11,39 @@ lksm/
 ├── kernel_module/             # The kernel module (C)
 │   ├── Makefile
 │   ├── main.c                 # Entry point, loads all detectors
-│   ├── include/               # Header files
-│   └── modules/               # Detector implementations
+│   ├── include/               # Header files (per-detector .h + arch abstraction)
+│   │   └── photon_ring_arch.h # Portable argument extraction (x86_64 / ARM64)
+│   └── modules/               # Detector implementations (17 .c files)
 │       ├── kprobe_detector.c
+│       ├── become_root_detector.c
+│       ├── bpf_hook_detector.c
+│       ├── tcp_hiding_detector.c
+│       ├── icmp_hook_detector.c
+│       ├── reset_tainted_detector.c
+│       ├── clear_taint_dmesg_detector.c
+│       ├── trace_pid_detector.c
+│       ├── hiding_stat.c
+│       ├── hiding_directory.c
+│       ├── hiding_chdir_detector.c
+│       ├── hiding_readlink_detector.c
+│       ├── hooks_write_detector.c
+│       ├── hook_file_access.c
+│       ├── lkrg_bypass_detector.c
 │       ├── hooking_audit_detector.c
-│       ├── taskstats_hook_detector.c
-│       └── become_root_detector.c
+│       └── taskstats_hook_detector.c
 ├── python_tools/              # Event reader and ES indexer (Python)
 │   ├── main.py                # CLI entry point
 │   ├── core/                  # Event parsing from dmesg
+│   │   └── modules/
+│   │       └── dmesg_reader.py  # Regex-based event parser with severity classification
 │   └── output/                # Elasticsearch writer + JSON logger
+│       ├── es_writer.py       # Bulk ES indexer
+│       └── json_logger.py     # Daily JSONL file logger
 ├── scripts/
 │   └── setup_kibana.py        # One-time Kibana data view setup
 ├── config/                    # Default configuration files
+│   ├── default_config.yml     # Main config (ES, polling, logging)
+│   └── rules.yml              # Detection rule definitions
 ├── data/logs/                 # Event logs (created at runtime)
 └── requirements.txt           # Python dependencies
 ```
@@ -193,18 +213,31 @@ sudo apt install linux-headers-$(uname -r)
 
 ## How It Works
 
-1. The **kernel module** hooks into kernel functions using ftrace and logs suspicious activity via `printk` to the kernel ring buffer (dmesg), tagged with `[PHOTON RING]`.
-2. The **Python daemon** polls `dmesg` for these messages, parses them into structured events, logs them to JSONL files, and bulk-indexes them into Elasticsearch.
-3. **Kibana** provides a real-time web dashboard for searching, filtering, and visualizing detection events.
+1. The **kernel module** uses ftrace and kprobes to hook into kernel functions across 17 detectors. Suspicious activity is logged via `printk` to the kernel ring buffer (dmesg), tagged with `[PHOTON RING]`.
+2. The **Python daemon** polls `dmesg` for these messages, classifies them by detector with per-event severity levels (`critical`, `high`, `medium`, `info`), extracts structured fields (PID, process name, target symbols, paths, etc.), logs them to JSONL files, and bulk-indexes them into Elasticsearch.
+3. **Kibana** provides a real-time web dashboard for searching, filtering, and visualizing detection events by severity, detector, and event type.
 
 ### Current Detectors
 
 | Detector | Hooked Function(s) | What It Detects |
 |----------|-------------------|-----------------|
 | **kprobe_detector** | `register_kprobe` | Monitors kprobe registrations; flags suspicious probes (e.g. `kallsyms_lookup_name`) |
+| **become_root_detector** | `commit_creds` | Detects privilege escalation — non-root processes gaining root credentials |
+| **bpf_hook_detector** | `ftrace_set_filter_ip` (kprobe) | Detects ftrace hooks on 13 BPF-critical functions |
+| **tcp_hiding_detector** | `ftrace_set_filter_ip` (kprobe) | Detects hooks on `tcp4/6_seq_show`, `udp4/6_seq_show`, `tpacket_rcv` |
+| **icmp_hook_detector** | `ftrace_set_filter_ip` (kprobe) | Detects hooks on `icmp_rcv` (ICMP backdoor detection) |
+| **reset_tainted_detector** | `kthread_create_on_node` + periodic polling | Detects suspicious kthreads, taint mask clearing, and hidden tasks |
+| **clear_taint_dmesg_detector** | `do_syslog` (kprobe) | Detects kernel ring buffer clearing and suspicious reads |
+| **trace_pid_detector** | `tracepoint_probe_register` | Detects PID-hiding tracepoint hooks on sched_process_fork/exec/exit |
+| **hiding_stat_detector** | stat/lstat/fstatat/statx syscalls | Cross-verifies PID existence in tasklist vs. /proc VFS entries |
+| **hiding_directory_detector** | `getdents`, `getdents64` | Audits directory enumeration for hidden entries |
+| **hiding_chdir_detector** | `__x64_sys_chdir` / `__arm64_sys_chdir` | Flags chdir to sensitive paths (`/proc/`, `/.hidden/`, `/dev/shm/`) |
+| **hiding_readlink_detector** | `vfs_readlink` | Flags readlink on module paths (`.ko`) and exe symlinks |
+| **hooks_write_detector** | `vfs_write` (kprobe) | Detects writes to ftrace control files (e.g. `set_ftrace_filter`) |
+| **hook_file_access_detector** | `do_filp_open` (kretprobe) | Tracks sensitive file access with full context (PID, UID, flags) |
+| **lkrg_bypass_detector** | `vprintk_emit`, `call_usermodehelper_exec` | Detects LKRG message filtering and usermode helper execution |
 | **taskstats_hook_detector** | `genl_register_family`, `cn_add_callback`, `taskstats_exit` | Monitors taskstats, generic netlink, and process connector hooks |
 | **hooking_audit_detector** | `netlink_unicast`, `audit_log_start`, `audit_log_end`, `__audit_syscall_entry` | Monitors audit subsystem hooks and evasion attempts |
-| **become_root_detector** | `commit_creds` | Detects privilege escalation — non-root processes gaining root credentials |
 
 ## Team
 
