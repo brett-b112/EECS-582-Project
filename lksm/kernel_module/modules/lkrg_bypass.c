@@ -1,406 +1,192 @@
-// hook_lkrg_bypass.c
-// Detects LKRG bypass attempts via integrity tampering, cred abuse, and watchdog/timer manipulation
-//
-// Detection targets:
-//   1. Kernel text patching (LKRG integrity bypass)
-//   2. Credential escalation bypassing validation
-//   3. Watchdog/timer disabling
-//   4. Function pointer hijacking
-//
-// Strategy:
-// Hook sensitive kernel functions (commit_creds, timers, memory write paths)
-// and cross-correlate suspicious behavior. LKRG protects kernel integrity,
-// so any attempt to modify kernel text or bypass credential validation
-// produces detectable side effects at these lower levels.
-
+// lkrg_bypass_detector.c
+// Detects rootkits that attempt to bypass Linux Kernel Runtime Guard (LKRG)
+// by hooking vprintk_emit to filter log messages, and tampering with
+// call_usermodehelper_exec to disable validation
+// (e.g. Singularity's lkrg_bypass_init)
 #include <linux/kernel.h>
 #include <linux/ftrace.h>
-#include <linux/cred.h>
 #include <linux/sched.h>
-#include <linux/ktime.h>
-#include <linux/ratelimit.h>
-#include <linux/kallsyms.h>
-#include <linux/timer.h>
-#include <linux/workqueue.h>
+#include <linux/string.h>
 #include "../include/photon_ring_arch.h"
 #include "../include/lkrg_bypass.h"
-/* ============================= */
-/* Severity & MITRE Mapping      */
-/* ============================= */
 
-typedef enum
+static struct ftrace_ops vprintk_ops;
+static struct ftrace_ops umh_ops;
+static unsigned long vprintk_addr;
+static unsigned long umh_addr;
+static bool vprintk_hook_active;
+static bool umh_hook_active;
+
+#define PR_PREFIX "[PHOTON_RING][LKRG_BYPASS] "
+
+/* Rate limit: prevent log flooding */
+static DEFINE_RATELIMIT_STATE(pr_rs, HZ, 10);
+
+/* ===================== HOOK STATE ===================== */
+
+struct pr_hook {
+    struct ftrace_ops ops;
+    unsigned long addr;
+    bool active;
+    const char *name;
+};
+
+static struct pr_hook vprintk_hook = {
+    .name = "vprintk_emit"
+};
+
+static struct pr_hook umh_hook = {
+    .name = "call_usermodehelper_exec"
+};
+
+/* ===================== UTIL ===================== */
+
+static inline void pr_log(const char *level, const char *fmt, ...)
 {
-    SEV_INFO = 0,
-    SEV_LOW,
-    SEV_MEDIUM,
-    SEV_HIGH,
-    SEV_CRITICAL
-} severity_t;
+    va_list args;
 
-static inline const char *severity_to_str(severity_t sev)
-{
-    switch (sev)
-    {
-    case SEV_CRITICAL:
-        return "CRITICAL";
-    case SEV_HIGH:
-        return "HIGH";
-    case SEV_MEDIUM: 
-        return "MEDIUM";
-    case SEV_LOW:
-        return "LOW";
-    default:
-        return "INFO";
-    }
-}
-/* MITRE ATT&CK Mappings */
-#define MITRE_PRIV_ESC "T1548"  /* Abuse Elevation Control */
-#define MITRE_DEF_EVADE "T1562" /* Impair Defenses */
-
-/* Escalation tracking */
-static atomic_t suspicious_events = ATOMIC_INIT(0);
-// int freq = atomic_inc_return(&suspicious_events);
-static int hooks_installed = 0;
-static severity_t calc_severity(bool cred_escalation,
-                                bool timer_abuse,
-                                int freq)
-{
-    if (cred_escalation && freq > 3)
-        return SEV_CRITICAL;
-    if (cred_escalation)
-        return SEV_HIGH;
-    if (timer_abuse)
-        return SEV_MEDIUM;
-    return SEV_LOW;
-}
-
-// esclation scoring
-static int calc_confidence(bool cred_escalation,
-                           bool timer_abuse)
-{
-    int score = 0;
-
-    if (cred_escalation)
-        score += 70;
-    if (timer_abuse)
-        score += 40;
-
-    if (score > 100)
-        score = 100;
-    return score;
-}
-/* ============================= */
-/* Rate Limiting                 */
-/* ============================= */
-
-// static DEFINE_RATELIMIT_STATE(mem_rl, HZ, 5);
-static DEFINE_RATELIMIT_STATE(cred_rl, HZ, 10);
-static DEFINE_RATELIMIT_STATE(timer_rl, HZ, 5);
-
-/* ============================= */
-/* Helpers                       */
-/* ============================= */
-
-/*
- * Check if an address lies in kernel text region.
- * Used to detect code patching (LKRG bypass).
- */
-
-// static bool is_kernel_text_addr(unsigned long addr)
-// {
-//     return false;
-// }
-/*
- * Simple heuristic: detect suspicious UID escalation
- */
-static bool is_suspicious_cred(const struct cred *old,
-                               const struct cred *new)
-{
-    return (old->uid.val != 0 && new->uid.val == 0);
-}
-
-/* ============================= */
-/* Detection Logic               */
-/* ============================= */
-
-/*
- * Detect credential tampering (LKRG bypass attempt)
- */
-static notrace void detect_cred_change(struct cred *new)
-{
-    if (!new)
-        return;
-
-    int freq = atomic_inc_return(&suspicious_events);
-    severity_t sev = calc_severity(true, false, freq);
-    int confidence = calc_confidence(true, false);
-
-    /* Downgrade expected privilege escalation */
-    if (!strcmp(current->comm, "sudo") ||
-        !strcmp(current->comm, "su")) {
-        sev = SEV_INFO;
-        confidence = 10;
-    }
-
-    printk(KERN_ALERT
-           "[PHOTON][%s][conf=%d%%][MITRE=%s] commit_creds PID=%d (%s) new_uid=%d\n",
-           severity_to_str(sev),
-           confidence,
-           MITRE_PRIV_ESC,
-           current->pid,
-           current->comm,
-           new->uid.val);
+    va_start(args, fmt);
+    printk("%s%s", level, PR_PREFIX);
+    vprintk(fmt, args);
+    va_end(args);
 }
 
 /*
- * Detect kernel memory modification attempts
+ * Vector A: Monitor vprintk_emit
+ *
+ * The Singularity rootkit hooks vprintk_emit to intercept all kernel
+ * printk output and filter messages containing LKRG-related strings.
+ * We monitor calls to vprintk_emit and flag any that arrive from
+ * unexpected (non-kernel-core) callers, which indicates another ftrace
+ * hook is intercepting the logging path.
+ *
+ * vprintk_emit signature:
+ *   int vprintk_emit(int facility, int level, const struct dev_printk_info *dev_info,
+ *                    const char *fmt, va_list args)
  */
-// static notrace void detect_kernel_write(unsigned long addr)
-// {
-//     if (is_kernel_text_addr(addr) && __ratelimit(&mem_rl))
-//     {
-//         printk(KERN_ALERT
-//                "[PHOTON RING] LKRG_BYPASS_ALERT: Kernel text write attempt "
-//                "at %px by PID %d (%s)\n",
-//                (void *)addr, current->pid, current->comm);
-//     }
-// }
-
-/*
- * Detect watchdog/timer tampering
- */
-static notrace void detect_timer_mod(void *timer_addr)
-{
-    severity_t sev;
-    int confidence;
-
-    if (__ratelimit(&timer_rl))
-    {
-
-        // suspicious_events++;
-
-        // sev = calc_severity(false, true, suspicious_events);
-        int freq = atomic_inc_return(&suspicious_events);
-
-        sev = calc_severity(false, true, freq);
-        confidence = calc_confidence(false, true);
-
-        printk(KERN_WARNING
-               "[PHOTON][%s][conf=%d%%][MITRE=%s] Timer modification PID=%d (%s) target=%px\n",
-               severity_to_str(sev),
-               confidence,
-               MITRE_DEF_EVADE,
-               current->pid,
-               current->comm,
-               timer_addr);
-    }
-}
-
-/* ============================= */
-/* Ftrace Hooks                  */
-/* ============================= */
-
-/*
- * commit_creds hook
- */
-static notrace void hook_commit_creds(unsigned long ip,
-                                      unsigned long parent_ip,
-                                      struct ftrace_ops *ops,
+static notrace void hook_vprintk_emit(unsigned long ip, unsigned long parent_ip,
+                                      struct ftrace_ops *fops,
                                       struct ftrace_regs *fregs)
 {
-    struct pt_regs *regs;
-    struct cred *new;
+    const char *fmt;
 
-    regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
-    if (!regs)
+    fmt = (const char *)PHOTON_RING_GET_ARG(fregs, 3);
+
+    if (!fmt)
         return;
 
-    new = (struct cred *)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
-    detect_cred_change(new);
-}
-
-/*
- * set_memory_rw / text_poke equivalent detection
- */
-// static notrace void hook_mem_write(unsigned long ip,
-//                                    unsigned long parent_ip,
-//                                    struct ftrace_ops *ops,
-//                                    struct ftrace_regs *fregs)
-// {
-//     struct pt_regs *regs;
-//     unsigned long addr;
-
-//     regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
-//     if (!regs)
-//         return;
-
-//     addr = (unsigned long)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
-//     // detect_kernel_write(addr);
-// }
-
-/*
- * timer deletion/modification hook
- */
-static notrace void hook_timer(unsigned long ip,
-                               unsigned long parent_ip,
-                               struct ftrace_ops *ops,
-                               struct ftrace_regs *fregs)
-{
-    struct pt_regs *regs;
-    void *timer;
-
-    regs = (struct pt_regs *)PHOTON_RING_GET_ARG(fregs, 0);
-    if (!regs)
-        return;
-
-    timer = (void *)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
-    detect_timer_mod(timer);
-}
-
-/* ============================= */
-/* Ftrace Ops                    */
-/* ============================= */
-
-static struct ftrace_ops cred_ops = {
-    .func = hook_commit_creds,
-    .flags = PHOTON_RING_FTRACE_FLAGS,
-};
-
-// static struct ftrace_ops mem_ops = {
-//     .func = hook_mem_write,
-//     .flags = PHOTON_RING_FTRACE_FLAGS,
-// };
-
-static struct ftrace_ops timer_ops = {
-    .func = hook_timer,
-    .flags = PHOTON_RING_FTRACE_FLAGS,
-};
-
-/* ============================= */
-/* Symbol Targets                */
-/* ============================= */
-
-static const char *cred_names[] = {
-    "commit_creds",
-    NULL,
-};
-
-// static const char *mem_names[] = {
-//     "text_poke",
-//     "set_memory_rw",
-//     NULL,
-// };
-
-static const char *timer_names[] = {
-    "del_timer",
-    "mod_timer",
-    NULL,
-};
-
-/* ============================= */
-/* Filter Setup Helper           */
-/* ============================= */
-
-static int setup_ftrace_filter(struct ftrace_ops *ops,
-                               const char **names)
-{
-    int i, ret;
-    bool ok = false;
-
-    for (i = 0; names[i]; i++)
-    {
-        ret = ftrace_set_filter(ops,
-                                (unsigned char *)names[i],
-                                strlen(names[i]),
-                                !ok);
-        if (!ret)
-        {
-            ok = true;
-            printk(KERN_INFO
-                   "[PHOTON RING] Filter set for %s\n",
-                   names[i]);
-        }
+    /*
+     * The rootkit filters messages containing "lkrg" or "p_lkrg".
+     * If we see vprintk_emit called with LKRG-related format strings
+     * from a module context (not core kernel), it could indicate LKRG
+     * is actively detecting something — or that a rootkit is about to
+     * suppress the message.
+     */
+    if (strstr(fmt, "lkrg") != NULL || strstr(fmt, "p_lkrg") != NULL ||
+        strstr(fmt, "LKRG") != NULL) {
+        printk(KERN_ALERT "[PHOTON RING] LKRG message detected in vprintk_emit"
+               " from caller %pS, process '%s' (PID %d)."
+               " Monitoring for LKRG bypass log filtering!\n",
+               (void *)parent_ip, current->comm, current->pid);
     }
-
-    return ok ? 0 : -ENOENT;
 }
 
-/* ============================= */
-/* Init / Exit                   */
-/* ============================= */
+/*
+ * Vector B: Monitor call_usermodehelper_exec
+ *
+ * The Singularity rootkit hooks call_usermodehelper_exec to temporarily
+ * disable LKRG's usermode helper validation during execution, allowing
+ * unauthorized helper processes to run without LKRG flagging them.
+ *
+ * We monitor all calls to this function since rootkits use it to
+ * execute malicious userspace programs from kernel context.
+ */
+static notrace void hook_umh_exec(unsigned long ip, unsigned long parent_ip,
+                                  struct ftrace_ops *fops,
+                                  struct ftrace_regs *fregs)
+{
+    printk(KERN_INFO "[PHOTON RING] call_usermodehelper_exec invoked"
+           " by caller %pS, process '%s' (PID %d)\n",
+           (void *)parent_ip, current->comm, current->pid);
+}
 
 int lkrg_bypass_init(void)
 {
     int ret;
 
-    printk(KERN_INFO
-           "[PHOTON RING] Initializing LKRG bypass detector...\n");
+    printk(KERN_INFO "[PHOTON RING] initializing LKRG bypass detector...\n");
 
-    hooks_installed = 0;
+    /* Vector A: hook vprintk_emit */
+    vprintk_addr = (unsigned long)vprintk_emit;
 
-    /* Credential hooks */
-    if (setup_ftrace_filter(&cred_ops, cred_names) == 0)
-    {
-        ret = register_ftrace_function(&cred_ops);
-        if (ret)
-            return ret;
-        hooks_installed++;
+    vprintk_ops.func = hook_vprintk_emit;
+    vprintk_ops.flags = PHOTON_RING_FTRACE_FLAGS;
+
+    ret = ftrace_set_filter_ip(&vprintk_ops, vprintk_addr, 0, 0);
+    if (ret) {
+        printk(KERN_WARNING "[PHOTON RING] lkrg_bypass: failed to set vprintk filter: %d\n", ret);
+        goto skip_vprintk;
     }
 
-    /* Memory hooks */
-    // if (setup_ftrace_filter(&mem_ops, mem_names) == 0)
-    // {
-    //     ret = register_ftrace_function(&mem_ops);
-    //     if (ret)
-    //         goto err;
-    //     hooks_installed++;
-    // }
+    ret = register_ftrace_function(&vprintk_ops);
+    if (ret) {
+        printk(KERN_WARNING "[PHOTON RING] lkrg_bypass: failed to register vprintk hook: %d\n", ret);
+        ftrace_set_filter_ip(&vprintk_ops, vprintk_addr, 1, 0);
+        goto skip_vprintk;
+    }
+    vprintk_hook_active = true;
+    printk(KERN_INFO "[PHOTON RING] lkrg_bypass: vprintk_emit hook active at 0x%lx\n",
+           vprintk_addr);
 
-    /* Timer hooks */
-    if (setup_ftrace_filter(&timer_ops, timer_names) == 0)
-    {
-        ret = register_ftrace_function(&timer_ops);
-        if (ret)
-            goto err;
-        hooks_installed++;
+skip_vprintk:
+    /* Vector B: hook call_usermodehelper_exec */
+    umh_addr = (unsigned long)call_usermodehelper_exec;
+
+    umh_ops.func = hook_umh_exec;
+    umh_ops.flags = PHOTON_RING_FTRACE_FLAGS;
+
+    ret = ftrace_set_filter_ip(&umh_ops, umh_addr, 0, 0);
+    if (ret) {
+        printk(KERN_WARNING "[PHOTON RING] lkrg_bypass: failed to set umh filter: %d\n", ret);
+        goto done;
     }
 
-    if (!hooks_installed)
-    {
-        printk(KERN_ERR
-               "[PHOTON RING] No LKRG hooks installed\n");
-        return -ENOENT;
+    ret = register_ftrace_function(&umh_ops);
+    if (ret) {
+        printk(KERN_WARNING "[PHOTON RING] lkrg_bypass: failed to register umh hook: %d\n", ret);
+        ftrace_set_filter_ip(&umh_ops, umh_addr, 1, 0);
+        goto done;
+    }
+    umh_hook_active = true;
+    printk(KERN_INFO "[PHOTON RING] lkrg_bypass: call_usermodehelper_exec hook active at 0x%lx\n",
+           umh_addr);
+
+done:
+    if (!vprintk_hook_active && !umh_hook_active) {
+        printk(KERN_ERR "[PHOTON RING] lkrg_bypass: no hooks could be installed\n");
+        return -ENODEV;
     }
 
-    printk(KERN_INFO
-           "[PHOTON RING] LKRG bypass detector active (%d hooks)\n",
-           hooks_installed);
-
+    printk(KERN_INFO "[PHOTON RING] LKRG bypass detector active"
+           " (vprintk: %s, umh: %s)\n",
+           vprintk_hook_active ? "yes" : "no",
+           umh_hook_active ? "yes" : "no");
     return 0;
-
-err:
-    // if (hooks_installed >= 2)
-    //     unregister_ftrace_function(&mem_ops);
-    if (hooks_installed >= 1)
-        unregister_ftrace_function(&cred_ops);
-    hooks_installed = 0;
-    return ret;
 }
 
 void lkrg_bypass_exit(void)
 {
-    printk(KERN_INFO
-           "[PHOTON RING] Removing LKRG bypass detector...\n");
+    printk(KERN_INFO "[PHOTON RING] removing LKRG bypass detector...\n");
 
-    if (hooks_installed >= 3)
-        unregister_ftrace_function(&timer_ops);
-    // if (hooks_installed >= 2)
-    //     unregister_ftrace_function(&mem_ops);
-    if (hooks_installed >= 1)
-        unregister_ftrace_function(&cred_ops);
+    if (vprintk_hook_active) {
+        unregister_ftrace_function(&vprintk_ops);
+        ftrace_set_filter_ip(&vprintk_ops, vprintk_addr, 1, 0);
+    }
 
-    hooks_installed = 0;
+    if (umh_hook_active) {
+        unregister_ftrace_function(&umh_ops);
+        ftrace_set_filter_ip(&umh_ops, umh_addr, 1, 0);
+    }
 
-    printk(KERN_INFO
-           "[PHOTON RING] LKRG bypass detector removed\n");
+    printk(KERN_INFO "[PHOTON RING] LKRG bypass detector removed\n");
 }
