@@ -1,6 +1,7 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
+#include "include/reset_tainted_detector.h"
 #include "include/kprobe_detector.h"
 #include "include/become_root_detector.h"
 #include "include/bpf_hook_detector.h"
@@ -11,6 +12,21 @@
 #include "include/cdev_ch.h"
 #include "include/kretprobe_detector.h"
 #include "include/ftrace_direct_detector.h"
+#include "include/taskstats_hook_detector.h"
+#include "include/hooking_audit_detector.h"
+#include "include/tcp_hiding_detector.h"
+#include "include/become_root_detector.h"
+#include "include/bpf_hook_detector.h"
+#include "include/hook_file_access.h"
+#include "include/hiding_stat.h"
+#include "include/icmp_hook_detector.h"
+#include "include/hiding_directory.h"
+#include "include/trace_pid_detector.h"
+#include "include/hiding_readlink_detector.h"
+#include "include/hiding_chdir_detector.h"
+#include "include/hooks_write_detector.h"
+#include "include/clear_taint_dmesg_detector.h"
+#include "include/lkrg_bypass_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -21,7 +37,8 @@ MODULE_VERSION("1.0");
  * detector registry structure
  * add new detectors here to automatically include them in init/cleanup
  */
-struct detector {
+struct detector
+{
     const char *name;
     int (*init)(void);
     void (*exit)(void);
@@ -29,21 +46,37 @@ struct detector {
 
 static struct detector detectors[] = {
     {
-        .name = "kprobe_detector", 
-        .init = kprobe_detector_init, 
+        // reset_tainted_detector should be fist so its kprobe fires before kprobe_detector is active; this
+        // avoids a false positive SUSPICIOUS alert during our own init
+        .name = "reset_tainted_detector",
+        .init = reset_tainted_detector_init,
+        .exit = reset_tainted_detector_exit,
+    },
+    {
+        .name = "kprobe_detector",
+        .init = kprobe_detector_init,
         .exit = kprobe_detector_exit,
     },
     {
-        .name = "kretprobe_detector",
-        .init = kretprobe_detector_init,
-        .exit = kretprobe_detector_exit,
+        .name = "taskstats_hook_detector",
+        .init = taskstats_detector_init,
+        .exit = taskstats_detector_exit,
+    },
+    {
+        .name = "hooking_audit_detector",
+        .init = audit_detector_init,
+        .exit = audit_detector_exit,
+    },
+    {
+        .name = "tcp_hiding_detector",
+        .init = tcp_hiding_detector_init,
+        .exit = tcp_hiding_detector_exit,
     },
     {
         .name = "become_root_detector",
         .init = become_root_detector_init,
         .exit = become_root_detector_exit,
     },
-    /*
     {
         .name = "bpf_hook_detector",
         .init = bpf_hook_detector_init,
@@ -79,11 +112,55 @@ static struct detector detectors[] = {
         .name = "taskstats_hook_detector", 
         .init = ,taskstats_hook_detector_init
         .exit = ,taskstats_hook_detector_exit
+    {
+        .name = "hiding_stat",
+        .init = hiding_stat_init,
+        .exit = hiding_stat_exit,
     },
     {
-        .name = "hooking_audit_detector", 
-        .init = , hooking_audit_detector_init
-        .exit = , hooking_audit_detector_exit
+        .name = "icmp_hook_detector",
+        .init = icmp_hook_detector_init,
+        .exit = icmp_hook_detector_exit,
+    },
+    {
+        .name = "hook_file_access",
+        .init = file_access_detector_init,
+        .exit = file_access_detector_exit,
+    },
+    {
+        .name = "hiding_directory",
+        .init = hiding_directory_init,
+        .exit = hiding_directory_exit,
+    },
+    {
+        .name = "trace_pid_detector",
+        .init = trace_pid_detector_init,
+        .exit = trace_pid_detector_exit,
+    },
+    {
+        .name = "hiding_readlink_detector",
+        .init = hiding_readlink_detector_init,
+        .exit = hiding_readlink_detector_exit,
+    },
+    {
+        .name = "hiding_chdir_detector",
+        .init = hiding_chdir_detector_init,
+        .exit = hiding_chdir_detector_exit,
+    },
+    {
+        .name = "hooks_write_detector",
+        .init = hooks_write_detector_init,
+        .exit = hooks_write_detector_exit,
+    },
+    {
+        .name = "clear_taint_dmesg_detector",
+        .init = clear_taint_dmesg_detector_init,
+        .exit = clear_taint_dmesg_detector_exit,
+    },
+    {
+        .name = "lkrg_bypass_detector",
+        .init = lkrg_bypass_detector_init,
+        .exit = lkrg_bypass_detector_exit,
     },
     */
     /* add future detectors here:
@@ -122,26 +199,28 @@ static int __init photon_ring_init(void)
     printk(KERN_INFO "[PHOTON RING] Events will be buffered until encryption is active\n");
 
     // initialize all detectors
-    for (i = 0; i < NUM_DETECTORS; i++) {
-        printk(KERN_INFO "[PHOTON RING] Starting detector: %s\n", 
+    for (i = 0; i < NUM_DETECTORS; i++)
+    {
+        printk(KERN_INFO "[PHOTON RING] Starting detector: %s\n",
                detectors[i].name);
-        
+
         ret = detectors[i].init();
-        if (ret) {
+        if (ret)
+        {
             printk(KERN_ERR "[PHOTON RING] Failed to initialize %s: %d\n",
                    detectors[i].name, ret);
-            
+
             // cleanup previously initialized detectors
             goto cleanup;
         }
-        
+
         active_detectors++;
         printk(KERN_INFO "[PHOTON RING] %s initialized successfully\n",
                detectors[i].name);
     }
 
     printk(KERN_INFO "========================================\n");
-    printk(KERN_INFO "[PHOTON RING] All detectors active (%d/%d)\n",
+    printk(KERN_INFO "[PHOTON RING] All detectors active (%d/%zu)\n",
            active_detectors, NUM_DETECTORS);
     printk(KERN_INFO "[PHOTON RING] System is now monitoring...\n");
     printk(KERN_INFO "========================================\n");
@@ -150,8 +229,9 @@ static int __init photon_ring_init(void)
 
 cleanup:
     // cleanup in reverse order
-    for (i = active_detectors - 1; i >= 0; i--) {
-        printk(KERN_INFO "[PHOTON RING] Cleaning up %s\n", 
+    for (i = active_detectors - 1; i >= 0; i--)
+    {
+        printk(KERN_INFO "[PHOTON RING] Cleaning up %s\n",
                detectors[i].name);
         detectors[i].exit();
     }
@@ -162,7 +242,7 @@ cleanup:
     return ret;
 }
 
-static void __exit photon_ring_exit(void) 
+static void __exit photon_ring_exit(void)
 {
     int i;
 
@@ -171,7 +251,8 @@ static void __exit photon_ring_exit(void)
     printk(KERN_INFO "========================================\n");
 
     // cleanup all detectors in reverse order
-    for (i = active_detectors - 1; i >= 0; i--) {
+    for (i = active_detectors - 1; i >= 0; i--)
+    {
         printk(KERN_INFO "[PHOTON RING] Stopping detector: %s\n",
                detectors[i].name);
         detectors[i].exit();

@@ -28,9 +28,15 @@ alerts:
     - url: ""  # Add webhook URL
       enabled: false
 
-# Dashboard settings
-dashboard:
-  host: "127.0.0.1"
-  port: 5000
-  refresh_rate: 1.0  # seconds
-  max_events_display: 100
+# Dashboard settings (deprecated — use Kibana at localhost:5601 instead)
+# dashboard:
+#   host: "127.0.0.1"
+#   port: 5000
+#   refresh_rate: 1.0  # seconds
+#   max_events_display: 100
+
+# Elasticsearch output
+elasticsearch:
+  enabled: true
+  host: "http://localhost:9200"
+  index: "lksm_events"
