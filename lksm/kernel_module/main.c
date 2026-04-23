@@ -3,6 +3,15 @@
 #include <linux/init.h>
 #include "include/reset_tainted_detector.h"
 #include "include/kprobe_detector.h"
+#include "include/become_root_detector.h"
+#include "include/bpf_hook_detector.h"
+// #include "include/hiding_stat.h"
+// #include "include/tcp_hiding_detector.h"
+#include "include/kallsyms_detector.h"
+#include "include/crypto.h"
+#include "include/cdev_ch.h"
+#include "include/kretprobe_detector.h"
+#include "include/ftrace_direct_detector.h"
 #include "include/taskstats_hook_detector.h"
 #include "include/hooking_audit_detector.h"
 #include "include/tcp_hiding_detector.h"
@@ -73,6 +82,36 @@ static struct detector detectors[] = {
         .init = bpf_hook_detector_init,
         .exit = bpf_hook_detector_exit,
     },
+    */
+   /*
+    {
+        .name = "tcp_hiding_detector",
+        .init = tcp_hiding_detector_init,
+        .exit = tcp_hiding_detector_exit,
+    },
+    */
+    {
+        .name = "kallsyms_detector",
+        .init = kallsyms_detector_init,
+        .exit = kallsyms_detector_exit,
+    },
+    {
+        .name = "ftrace_direct_detector",
+        .init = ftrace_direct_detector_init,
+        .exit = ftrace_direct_detector_exit,
+    },
+    /*
+    {
+        .name = "hiding_stat",
+        .init = hiding_stat_init,
+        .exit = hiding_stat_exit,
+    },
+    */
+    /*
+    {
+        .name = "taskstats_hook_detector", 
+        .init = ,taskstats_hook_detector_init
+        .exit = ,taskstats_hook_detector_exit
     {
         .name = "hiding_stat",
         .init = hiding_stat_init,
@@ -123,6 +162,14 @@ static struct detector detectors[] = {
         .init = lkrg_bypass_detector_init,
         .exit = lkrg_bypass_detector_exit,
     },
+    */
+    /* add future detectors here:
+     * {
+     *     .name = "syscall_detector",
+     *     .init = syscall_detector_init,
+     *     .exit = syscall_detector_exit,
+     * },
+     */
 };
 
 #define NUM_DETECTORS (sizeof(detectors) / sizeof(detectors[0]))
@@ -138,6 +185,18 @@ static int __init photon_ring_init(void)
     printk(KERN_INFO "[PHOTON RING] Initializing detection system\n");
     printk(KERN_INFO "[PHOTON RING] Version: %s\n", THIS_MODULE->version);
     printk(KERN_INFO "========================================\n");
+
+    // initialize event manager
+    printk(KERN_INFO "[PHOTON RING] Initializing infrastructure...\n");
+    ret = event_manager_init();
+    if (ret) {
+        printk(KERN_ERR "[PHOTON RING] Failed to initialize event manager: %d\n", ret);
+        return ret;
+    }
+
+    printk(KERN_INFO "[PHOTON RING] Infrastructure initialized\n");
+    printk(KERN_INFO "[PHOTON RING] Waiting for key exchange from userspace...\n");
+    printk(KERN_INFO "[PHOTON RING] Events will be buffered until encryption is active\n");
 
     // initialize all detectors
     for (i = 0; i < NUM_DETECTORS; i++)
@@ -177,6 +236,8 @@ cleanup:
         detectors[i].exit();
     }
 
+    event_manager_exit();
+    
     printk(KERN_ERR "[PHOTON RING] Initialization failed\n");
     return ret;
 }
@@ -196,6 +257,8 @@ static void __exit photon_ring_exit(void)
                detectors[i].name);
         detectors[i].exit();
     }
+
+    event_manager_exit();
 
     printk(KERN_INFO "========================================\n");
     printk(KERN_INFO "[PHOTON RING] All detectors stopped\n");

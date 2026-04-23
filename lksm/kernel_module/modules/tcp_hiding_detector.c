@@ -25,6 +25,7 @@
 #include <linux/sched.h>
 #include "../include/photon_ring_arch.h"
 #include "../include/tcp_hiding_detector.h"
+#include "../include/event_manager.h"
 
 // Functions that Singularity hooks to hide TCP/UDP connections
 static const char *tcp_hiding_names[] = {
@@ -86,10 +87,26 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs)
 
     for (i = 0; i < NUM_TCP_TARGETS; i++) {
         if (tcp_hiding_addrs[i] && target_ip == tcp_hiding_addrs[i]) {
+            struct tcp_hiding_event_data event_data;
+
             printk(KERN_ALERT "[PHOTON RING] SUSPICIOUS *** ftrace hook on %s detected!"
                    " Possible TCP hiding rootkit! (caller: %pS) by process '%s' (PID %d)\n",
                    tcp_hiding_names[i], (void *)PHOTON_RING_KPROBE_GET_ARG(regs, 0),
                    current->comm, current->pid);
+
+            memset(&event_data, 0, sizeof(event_data));
+            strncpy(event_data.hooked_symbol, tcp_hiding_names[i],
+                    sizeof(event_data.hooked_symbol) - 1);
+            event_data.hooked_addr  = tcp_hiding_addrs[i];
+            event_data.caller_addr  = PHOTON_RING_KPROBE_GET_ARG(regs, 0);
+            strncpy(event_data.caller_comm, current->comm,
+                    sizeof(event_data.caller_comm) - 1);
+            event_data.caller_pid   = current->pid;
+
+            photon_log_event(PHOTON_EVENT_NETWORK_HOOK,
+                             PHOTON_DETECTOR_KPROBE,
+                             &event_data,
+                             sizeof(event_data));
             return 0;
         }
     }

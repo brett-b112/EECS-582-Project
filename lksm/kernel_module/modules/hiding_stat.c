@@ -27,6 +27,7 @@
 #include <linux/resource.h>
 #include "../include/photon_ring_arch.h"
 #include "../include/hiding_stat.h"
+#include "../include/event_manager.h"
 
 #define MAX_PATH_LEN 256
 
@@ -162,9 +163,25 @@ static notrace void analyze_stat_path(const char *path, const char *syscall_name
 			 * is missing at VFS level. This indicates VFS-level
 			 * proc hiding (different from syscall-level hiding).
 			 */
+			struct stat_event_data event_data;
+
 			printk(KERN_ALERT
 				"[PHOTON RING] CRITICAL: %s(\"%s\") - PID %d exists in tasklist but /proc entry missing at VFS level!\n",
 				syscall_name, path, proc_pid);
+
+			memset(&event_data, 0, sizeof(event_data));
+			strncpy(event_data.syscall_name, syscall_name, sizeof(event_data.syscall_name) - 1);
+			strncpy(event_data.path, path, sizeof(event_data.path) - 1);
+			strncpy(event_data.caller_comm, current->comm, sizeof(event_data.caller_comm) - 1);
+			event_data.caller_pid = current->pid;
+			event_data.target_pid = (u32)proc_pid;
+			event_data.real_nlink = 0;
+			event_data.flags = STAT_FLAG_TASK_EXISTS | STAT_FLAG_VFS_MISSING;
+
+			photon_log_event(PHOTON_EVENT_STAT_PATH_HIDDEN,
+					 PHOTON_DETECTOR_STAT,
+					 &event_data,
+					 sizeof(event_data));
 		} else if (task_exists && vfs_exists) {
 			/*
 			 * PID and /proc entry both exist. If the rootkit's
@@ -172,10 +189,26 @@ static notrace void analyze_stat_path(const char *path, const char *syscall_name
 			 * log entry proves the path was valid.
 			 */
 			if (__ratelimit(&stat_rl)) {
+				struct stat_event_data event_data;
+
 				printk(KERN_INFO
 					"[PHOTON RING] STAT_AUDIT: %s(\"%s\") by PID %d (%s) - target PID %d verified in tasklist and VFS\n",
 					syscall_name, path, current->pid,
 					current->comm, proc_pid);
+
+				memset(&event_data, 0, sizeof(event_data));
+				strncpy(event_data.syscall_name, syscall_name, sizeof(event_data.syscall_name) - 1);
+				strncpy(event_data.path, path, sizeof(event_data.path) - 1);
+				strncpy(event_data.caller_comm, current->comm, sizeof(event_data.caller_comm) - 1);
+				event_data.caller_pid = current->pid;
+				event_data.target_pid = (u32)proc_pid;
+				event_data.real_nlink = 0;
+				event_data.flags = STAT_FLAG_TASK_EXISTS;
+
+				photon_log_event(PHOTON_EVENT_STAT_PATH_HIDDEN,
+						 PHOTON_DETECTOR_STAT,
+						 &event_data,
+						 sizeof(event_data));
 			}
 		}
 		return;
@@ -189,10 +222,26 @@ static notrace void analyze_stat_path(const char *path, const char *syscall_name
 	 */
 	real_nlink = get_real_nlink(path, &is_dir);
 	if (is_dir && real_nlink > 0 && __ratelimit(&nlink_rl)) {
+		struct stat_event_data event_data;
+
 		printk(KERN_INFO
 			"[PHOTON RING] NLINK_AUDIT: %s(\"%s\") real_nlink=%u by PID %d (%s)\n",
 			syscall_name, path, real_nlink,
 			current->pid, current->comm);
+
+		memset(&event_data, 0, sizeof(event_data));
+		strncpy(event_data.syscall_name, syscall_name, sizeof(event_data.syscall_name) - 1);
+		strncpy(event_data.path, path, sizeof(event_data.path) - 1);
+		strncpy(event_data.caller_comm, current->comm, sizeof(event_data.caller_comm) - 1);
+		event_data.caller_pid = current->pid;
+		event_data.target_pid = 0;
+		event_data.real_nlink = real_nlink;
+		event_data.flags = STAT_FLAG_IS_DIR;
+
+		photon_log_event(PHOTON_EVENT_STAT_NLINK_AUDIT,
+				 PHOTON_DETECTOR_STAT,
+				 &event_data,
+				 sizeof(event_data));
 	}
 }
 
@@ -280,9 +329,25 @@ static notrace void hook_getpriority_cb(unsigned long ip, unsigned long parent_i
 		return;
 
 	if (photon_pid_has_task(who) && __ratelimit(&getprio_rl)) {
+		struct stat_event_data event_data;
+
 		printk(KERN_INFO
 			"[PHOTON RING] GETPRIORITY_AUDIT: getpriority(PRIO_PROCESS, %d) by PID %d (%s) - target PID verified in tasklist\n",
 			who, current->pid, current->comm);
+
+		memset(&event_data, 0, sizeof(event_data));
+		strncpy(event_data.syscall_name, "getpriority", sizeof(event_data.syscall_name) - 1);
+		/* path is not applicable for getpriority — leave zeroed */
+		strncpy(event_data.caller_comm, current->comm, sizeof(event_data.caller_comm) - 1);
+		event_data.caller_pid = current->pid;
+		event_data.target_pid = (u32)who;
+		event_data.real_nlink = 0;
+		event_data.flags = STAT_FLAG_TASK_EXISTS;
+
+		photon_log_event(PHOTON_EVENT_STAT_PID_AUDIT,
+				 PHOTON_DETECTOR_STAT,
+				 &event_data,
+				 sizeof(event_data));
 	}
 }
 
