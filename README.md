@@ -1,20 +1,32 @@
 # PHOTON RING
 <img width="500" height="500" alt="photon_ring_logo" src="https://github.com/user-attachments/assets/4c139850-ec36-4381-98c4-fa9b5222bb18" />
 
-A kernel module that detects rootkit-style activity (kprobe hooking, audit evasion, taskstats manipulation, privilege escalation, BPF/TCP/ICMP hook detection, taint clearing, PID/file/directory hiding, ftrace tampering, and LKRG bypass attempts) and streams severity-classified detections to Elasticsearch for real-time visualization in Kibana.
+A kernel module that detects rootkit-style activity (kprobe hooking, audit evasion, taskstats manipulation, privilege escalation, BPF/TCP/ICMP hook detection, taint clearing, PID/file/directory hiding, ftrace tampering, and LKRG bypass attempts). Detections are severity-classified and delivered through an encrypted kernel-to-userspace pipeline (AES-256-GCM over a character device, relayed by a TLS 1.3 agent to a remote server) or via a dmesg fallback path, then indexed into Elasticsearch for real-time visualization in Kibana.
 
 ## Project Structure
 
 ```
 lksm/
-├── docker-compose.yml         # Elasticsearch + Kibana stack
-├── kernel_module/             # The kernel module (C)
+├── docker-compose.yml           # Elasticsearch + Kibana stack
+├── kernel_module/               # The kernel module (C)
 │   ├── Makefile
-│   ├── main.c                 # Entry point, loads all detectors
-│   ├── include/               # Header files (per-detector .h + arch abstraction)
-│   │   └── photon_ring_arch.h # Portable argument extraction (x86_64 / ARM64)
-│   └── modules/               # Detector implementations (17 .c files)
+│   ├── main.c                   # Entry point, detector registry, init/exit lifecycle
+│   ├── photon_agent.c           # Userspace TLS 1.3 agent (key exchange + frame relay)
+│   ├── include/                 # Header files (per-detector .h + infrastructure)
+│   │   ├── photon_ring_arch.h   # Portable argument extraction (x86_64 / ARM64)
+│   │   ├── event_manager.h      # Event structs, severity levels, payload types
+│   │   ├── crypto.h             # AES-256-GCM encryption interface
+│   │   ├── cdev_ch.h            # Character device interface
+│   │   └── watchlists.h         # 39 critical kernel symbols
+│   ├── comms/                   # Encrypted communication pipeline
+│   │   ├── event_manager.c      # Per-CPU ring buffers, severity classification
+│   │   ├── crypto.c             # AES-256-GCM encryption, HKDF-SHA256 key derivation
+│   │   └── cdev_ch.c            # /dev/photon_ring character device, ring buffer, ioctl
+│   └── modules/                 # Detector implementations (20 .c files)
 │       ├── kprobe_detector.c
+│       ├── kretprobe_detector.c
+│       ├── kallsyms_detector.c
+│       ├── ftrace_direct_detector.c
 │       ├── become_root_detector.c
 │       ├── bpf_hook_detector.c
 │       ├── tcp_hiding_detector.c
@@ -31,21 +43,25 @@ lksm/
 │       ├── lkrg_bypass_detector.c
 │       ├── hooking_audit_detector.c
 │       └── taskstats_hook_detector.c
-├── python_tools/              # Event reader and ES indexer (Python)
-│   ├── main.py                # CLI entry point
-│   ├── core/                  # Event parsing from dmesg
+├── python_tools/                # Event processing and ES indexing (Python)
+│   ├── main.py                  # CLI entry point (daemon / dashboard modes)
+│   ├── server.py                # Remote TLS server (key distribution, frame decryption, ES indexing)
+│   ├── core/                    # Event parsing from dmesg
 │   │   └── modules/
 │   │       └── dmesg_reader.py  # Regex-based event parser with severity classification
-│   └── output/                # Elasticsearch writer + JSON logger
-│       ├── es_writer.py       # Bulk ES indexer
-│       └── json_logger.py     # Daily JSONL file logger
+│   └── output/                  # Elasticsearch writer + JSON logger
+│       ├── es_writer.py         # Bulk ES indexer
+│       └── json_logger.py       # Daily JSONL file logger
+├── arch/
+│   └── architecture.mermaid     # System architecture diagram
 ├── scripts/
-│   └── setup_kibana.py        # One-time Kibana data view setup
-├── config/                    # Default configuration files
-│   ├── default_config.yml     # Main config (ES, polling, logging)
-│   └── rules.yml              # Detection rule definitions
-├── data/logs/                 # Event logs (created at runtime)
-└── requirements.txt           # Python dependencies
+│   └── setup_kibana.py          # One-time Kibana data view setup
+├── config/                      # Default configuration files
+│   ├── default_config.yml       # Main config (ES, polling, logging)
+│   └── rules.yml                # Detection rule definitions
+├── es_payload_structure.md      # Elasticsearch document schema reference
+├── data/logs/                   # Event logs (created at runtime)
+└── requirements.txt             # Python dependencies
 ```
 
 ## Prerequisites 
@@ -58,7 +74,7 @@ lksm/
 Install the required system packages:
 
 ```bash
-sudo apt install build-essential linux-headers-$(uname -r) python3-venv docker docker-compose
+sudo apt install build-essential linux-headers-$(uname -r) libssl-dev python3-venv docker docker-compose
 ```
 
 ## Setup
@@ -131,15 +147,17 @@ You should see output like:
 
 #### Makefile Commands
 
-| Command          | What it does                          |
-|------------------|---------------------------------------|
-| `make`           | Build the module                      |
-| `make clean`     | Remove build artifacts                |
-| `make install`   | Build and load the module             |
-| `make uninstall` | Unload the module                     |
-| `make reload`    | Unload, clean, rebuild, and reload    |
-| `make logs`      | Show recent kernel logs               |
-| `make status`    | Check if the module is loaded         |
+| Command          | What it does                                       |
+|------------------|----------------------------------------------------|
+| `make`           | Build kernel module + userspace agent (default)    |
+| `make module`    | Build only the kernel module                       |
+| `make agent`     | Build only the userspace agent                     |
+| `make clean`     | Remove all build artifacts                         |
+| `make install`   | Build, load module, install agent to /usr/local/bin|
+| `make uninstall` | Unload module, remove installed agent              |
+| `make logs`      | Show recent kernel logs (last 50 lines)            |
+| `make clearlogs` | Clear kernel ring buffer                           |
+| `make help`      | Show all targets and variables                     |
 
 ### 5. Run the Python Daemon
 
@@ -213,15 +231,37 @@ sudo apt install linux-headers-$(uname -r)
 
 ## How It Works
 
-1. The **kernel module** uses ftrace and kprobes to hook into kernel functions across 17 detectors. Suspicious activity is logged via `printk` to the kernel ring buffer (dmesg), tagged with `[PHOTON RING]`.
-2. The **Python daemon** polls `dmesg` for these messages, classifies them by detector with per-event severity levels (`critical`, `high`, `medium`, `info`), extracts structured fields (PID, process name, target symbols, paths, etc.), logs them to JSONL files, and bulk-indexes them into Elasticsearch.
-3. **Kibana** provides a real-time web dashboard for searching, filtering, and visualizing detection events by severity, detector, and event type.
+Photon Ring delivers detections to Elasticsearch through two independent data paths:
+
+### Primary Path — Encrypted Kernel Channel
+
+1. The **kernel module** uses ftrace, kprobes, and tracepoints to hook into kernel functions across 20 detectors. When suspicious activity is detected, a structured `photon_event` is created with severity classification (`INFO`, `SUSPICIOUS`, `ALERT`, `CRITICAL`).
+2. The **event manager** (`comms/event_manager.c`) enqueues events into per-CPU ring buffers (256 slots each) with atomic sequence numbering for gap detection.
+3. The **crypto layer** (`comms/crypto.c`) encrypts each event using AES-256-GCM. Session keys are derived from a master key via HKDF-SHA256, with support for key rotation.
+4. Encrypted frames are queued in the **character device** (`/dev/photon_ring`) ring buffer for userspace consumption.
+5. The **userspace agent** (`photon_agent`) connects to a remote server over TLS 1.3 with mutual authentication (mTLS), performs a key exchange (the server generates a 32-byte master key and the agent injects it into the kernel via ioctl), then continuously reads encrypted frames from `/dev/photon_ring` and relays them to the server without decrypting.
+6. The **remote server** (`python_tools/server.py`) replicates the kernel's HKDF key derivation, decrypts each frame, parses the `photon_event` struct, and bulk-indexes the event into Elasticsearch.
+
+### Fallback Path — dmesg Polling
+
+1. Detectors also log to the kernel ring buffer via `printk`, tagged with `[PHOTON RING]`.
+2. The **Python daemon** (`python_tools/main.py`) polls dmesg, regex-parses the messages into structured events with per-event severity levels (`critical`, `high`, `medium`, `info`), and extracts fields (PID, process name, target symbols, paths, etc.).
+3. Events are logged to daily JSONL files (`data/logs/`) and bulk-indexed into Elasticsearch.
+
+### Visualization
+
+**Kibana** provides a real-time web dashboard for searching, filtering, and visualizing detection events by severity, detector, and event type. Both data paths write to the same `lksm_events` index, so all detections appear in a single dashboard. See `es_payload_structure.md` for the full Elasticsearch document schema.
 
 ### Current Detectors
+
+The module includes 20 detectors. 4 are active by default; the remaining 16 are fully implemented and can be enabled in `main.c`.
 
 | Detector | Hooked Function(s) | What It Detects |
 |----------|-------------------|-----------------|
 | **kprobe_detector** | `register_kprobe` | Monitors kprobe registrations; flags suspicious probes (e.g. `kallsyms_lookup_name`) |
+| **kretprobe_detector** | `register_kretprobe`, `register_kprobes` | Monitors return probe registrations; flags high maxactive values and batch registrations |
+| **kallsyms_detector** | `kallsyms_lookup_name` (ftrace) | Monitors runtime symbol resolution; flags watchlisted symbol lookups (rootkit reconnaissance) |
+| **ftrace_direct_detector** | `ftrace_set_filter`, `ftrace_set_notrace`, `modify_ftrace_direct` (kprobes) | Detects ftrace filter/notrace modifications and direct-call patching |
 | **become_root_detector** | `commit_creds` | Detects privilege escalation — non-root processes gaining root credentials |
 | **bpf_hook_detector** | `ftrace_set_filter_ip` (kprobe) | Detects ftrace hooks on 13 BPF-critical functions |
 | **tcp_hiding_detector** | `ftrace_set_filter_ip` (kprobe) | Detects hooks on `tcp4/6_seq_show`, `udp4/6_seq_show`, `tpacket_rcv` |
@@ -238,6 +278,10 @@ sudo apt install linux-headers-$(uname -r)
 | **lkrg_bypass_detector** | `vprintk_emit`, `call_usermodehelper_exec` | Detects LKRG message filtering and usermode helper execution |
 | **taskstats_hook_detector** | `genl_register_family`, `cn_add_callback`, `taskstats_exit` | Monitors taskstats, generic netlink, and process connector hooks |
 | **hooking_audit_detector** | `netlink_unicast`, `audit_log_start`, `audit_log_end`, `__audit_syscall_entry` | Monitors audit subsystem hooks and evasion attempts |
+
+### Architecture Portability
+
+The module supports both **x86_64** and **ARM64** via `photon_ring_arch.h`, which provides portable macros for extracting function arguments from ftrace and kprobe register snapshots. On x86_64 it maps to RDI/RSI/RDX/RCX/R8/R9; on ARM64 it maps to X0-X7. Modern kernels (6.x+) use `ftrace_regs_get_argument()` with a fallback to direct `pt_regs` access on older kernels.
 
 ## Team
 

@@ -1,0 +1,55 @@
+---
+title: Photon Ring — System Architecture
+---
+flowchart TB
+    subgraph KernelSpace["Kernel Space"]
+        Detectors["20 Rootkit Detectors\n(ftrace / kprobes / tracepoints)"]
+        Watchlist["Watchlist\n39 Critical Kernel Symbols"]
+        ArchAbstract["Architecture Abstraction\nx86_64 / ARM64"]
+        EventMgr["Event Manager\nPer-CPU Ring Buffers\nSeverity Classification"]
+        Crypto["Crypto Engine\nAES-256-GCM\nHKDF Key Rotation"]
+        CharDev["/dev/photon_ring\nCharacter Device"]
+        Dmesg["dmesg\nKernel Ring Buffer"]
+    end
+
+    subgraph UserSpace["User Space"]
+        Agent["Photon Agent\nTLS 1.3 Encrypted Relay"]
+        Server["Remote Server\nFrame Decryption & Indexing"]
+        Daemon["Python Daemon\ndmesg Polling & Parsing"]
+        JSONLog["JSON Logger\nDaily JSONL Files"]
+    end
+
+    subgraph Visualization["Visualization"]
+        ES["Elasticsearch"]
+        Kibana["Kibana Dashboard"]
+    end
+
+    %% Detector support
+    Watchlist -.->|symbol lookup| Detectors
+    ArchAbstract -.->|register access| Detectors
+
+    %% Primary path (encrypted channel)
+    Detectors -->|events| EventMgr
+    EventMgr -->|encrypt| Crypto
+    Crypto -->|queued frames| CharDev
+    CharDev -->|read frames| Agent
+    Agent -->|TLS relay| Server
+    Server -->|index| ES
+
+    %% Fallback path (dmesg)
+    Detectors -->|printk| Dmesg
+    Dmesg -->|poll & parse| Daemon
+    Daemon -->|bulk index| ES
+    Daemon -->|log| JSONLog
+
+    %% Visualization
+    ES --> Kibana
+
+    %% Styling
+    classDef kernel fill:#2d3748,stroke:#4a5568,color:#e2e8f0
+    classDef user fill:#1a365d,stroke:#2b6cb0,color:#e2e8f0
+    classDef viz fill:#22543d,stroke:#38a169,color:#e2e8f0
+
+    class Detectors,Watchlist,ArchAbstract,EventMgr,Crypto,CharDev,Dmesg kernel
+    class Agent,Server,Daemon,JSONLog user
+    class ES,Kibana viz
