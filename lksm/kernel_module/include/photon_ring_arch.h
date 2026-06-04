@@ -86,8 +86,7 @@
 // #include <linux/ftrace_regs.h>
 
 /* Use the portable ftrace_regs API (works on x86_64, ARM64, etc.) */
-// #define PHOTON_RING_GET_ARG(fregs, n) \
-    ftrace_regs_get_argument(fregs, n)
+// #define PHOTON_RING_GET_ARG(fregs, n) ftrace_regs_get_argument(fregs, n)
 
 /*
  * With FTRACE_WITH_ARGS, arguments are saved automatically.

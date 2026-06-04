@@ -69,6 +69,22 @@ static const char * const photon_watchlist[] = {
     "__ia32_sys_getpriority",
     "__ia32_sys_newfstatat",
 
+    /* BPF functions */
+    "bpf_map_lookup_elem",
+    "bpf_map_update_elem",
+    "array_map_update_elem",
+    "bpf_ringbuf_output",
+    "bpf_ringbuf_reserve",
+    "bpf_ringbuf_submit",
+    "__bpf_prog_run",
+    "perf_event_output",
+    "perf_trace_run_bpf_submit",
+    "bpf_iter_run_prog",
+    "bpf_seq_write",
+    "bpf_seq_printf",
+    "__x64_sys_bpf",
+    "__ia32_sys_bpf",
+
     NULL
 };
 

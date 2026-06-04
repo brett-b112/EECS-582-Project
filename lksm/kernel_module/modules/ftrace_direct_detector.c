@@ -1,15 +1,17 @@
 /*
  * ftrace_direct_detector.c — Photon Ring
  *
- * Monitors two ftrace bypass paths not covered by bpf_hook_detector:
+ * Monitors ftrace bypass paths not covered by bpf_hook_detector:
  *
  *   ftrace_set_filter    — glob/string filter registration
  *   ftrace_set_notrace   — glob/string notrace registration (same signature)
+ *   ftrace_set_filter_ip — address-based filter registration (most rootkits
+ *                          use this exclusively; no string pattern involved)
  *   modify_ftrace_direct — direct-call patching (bypasses ops dispatch)
  *
  * See ftrace_direct_detector.h for full design rationale.
  *
- * All three hooks use kprobes because every target is ftrace infrastructure,
+ * All four hooks use kprobes because every target is ftrace infrastructure,
  * which ftrace cannot hook itself.
  *
  * Events are emitted as PHOTON_EVENT_FTRACE_HOOK with a ftrace_hook_data
@@ -25,6 +27,7 @@
 #include <linux/sched.h>
 #include "photon_ring_arch.h"
 #include "watchlists.h"
+#include "watchlist_resolver.h"
 #include "ftrace_direct_detector.h"
 #include "event_manager.h"
 
@@ -157,6 +160,91 @@ static int handler_modify_direct(struct kprobe *p, struct pt_regs *regs)
 }
 
 /* -------------------------------------------------------------------------
+ * Kprobe 4: ftrace_set_filter_ip
+ *
+ * This is the primary hook installation path used by ftrace-based rootkits.
+ * Unlike ftrace_set_filter (which takes a glob string), ftrace_set_filter_ip
+ * takes a pre-resolved kernel address directly:
+ *
+ *   int ftrace_set_filter_ip(struct ftrace_ops *ops,
+ *                            unsigned long ip,
+ *                            int remove,
+ *                            int reset);
+ *
+ * We emit an event when:
+ *   - remove == 0  (installation, not removal)
+ *   AND either:
+ *   - ip resolves to a watchlisted symbol via the watchlist_resolver dict, OR
+ *   - ops->func is anonymous (points into an unknown/unlisted module)
+ *
+ * The watchlist_resolver dictionary is used here rather than
+ * photon_is_watchlisted(name) because the rootkit never passes a symbol
+ * name string — it only passes the raw address.  The resolver maps that
+ * address back to the name we stored during kprobe_detector_init.
+ * -------------------------------------------------------------------------*/
+
+static struct kprobe kp_set_filter_ip;
+
+static int handler_set_filter_ip(struct kprobe *p, struct pt_regs *regs)
+{
+    struct ftrace_ops *ops;
+    unsigned long      ip;
+    int                remove;
+    unsigned long      ops_func = 0;
+    const char        *resolved_name;
+    char               ip_sym[KSYM_SYMBOL_LEN];
+
+    ops    = (struct ftrace_ops *)PHOTON_RING_KPROBE_GET_ARG(regs, 0);
+    ip     = (unsigned long)PHOTON_RING_KPROBE_GET_ARG(regs, 1);
+    remove = (int)PHOTON_RING_KPROBE_GET_ARG(regs, 2);
+
+    /* Only care about installations, not removals. */
+    if (remove)
+        return 0;
+
+    if (!ip)
+        return 0;
+
+    if (ops && ops->func)
+        ops_func = (unsigned long)ops->func;
+
+    /*
+     * Try to resolve ip to a watchlisted name via the pre-built dictionary.
+     * This catches rootkits that resolve addresses themselves and never pass
+     * a symbol name string to any kernel API.
+     */
+    resolved_name = watchlist_resolver_lookup_name(ip);
+
+    if (!resolved_name && !addr_is_anonymous(ops_func)) {
+        /*
+         * ip is not watchlisted and ops->func is a known symbol — not
+         * suspicious enough to emit.  Legitimate modules (including Photon
+         * Ring itself) install ftrace hooks this way constantly.
+         *
+         * The within_module check is intentionally absent here: we rely on
+         * the watchlist and anonymity checks instead, because kprobes do not
+         * have a parent_ip available in pre_handler context.
+         */
+        return 0;
+    }
+
+    /*
+     * Fall back to sprint_symbol for the target_sym field if the resolver
+     * didn't match — addr_is_anonymous(ops_func) branch lands here.
+     */
+    if (resolved_name) {
+        emit_event(FTRACE_HOOK_SRC_SET_FILTER,
+                   resolved_name, ip, ops_func, NULL);
+    } else {
+        sprint_symbol_no_offset(ip_sym, ip);
+        emit_event(FTRACE_HOOK_SRC_SET_FILTER,
+                   ip_sym, ip, ops_func, NULL);
+    }
+
+    return 0;
+}
+
+/* -------------------------------------------------------------------------
  * Init / exit
  * -------------------------------------------------------------------------*/
 
@@ -216,6 +304,27 @@ int ftrace_direct_detector_init(void)
         installed++;
     }
 
+    /* --- Kprobe 4: ftrace_set_filter_ip --- */
+    /*
+     * This is the path most ftrace-based rootkits actually use — they resolve
+     * addresses via kallsyms_lookup_name and pass them directly to
+     * ftrace_set_filter_ip, never touching ftrace_set_filter (the string
+     * variant).  Without this probe, those hook installations are invisible.
+     */
+    memset(&kp_set_filter_ip, 0, sizeof(kp_set_filter_ip));
+    kp_set_filter_ip.symbol_name = "ftrace_set_filter_ip";
+    kp_set_filter_ip.pre_handler = handler_set_filter_ip;
+
+    ret = register_kprobe(&kp_set_filter_ip);
+    if (ret)
+        printk(KERN_ERR "[PHOTON RING] ftrace_direct: "
+               "failed to probe ftrace_set_filter_ip: %d\n", ret);
+    else {
+        printk(KERN_INFO "[PHOTON RING] ftrace_direct: "
+               "probing ftrace_set_filter_ip at %px\n", kp_set_filter_ip.addr);
+        installed++;
+    }
+
     if (installed == 0) {
         printk(KERN_ERR "[PHOTON RING] ftrace_direct: "
                "no probes installed — aborting\n");
@@ -231,6 +340,8 @@ void ftrace_direct_detector_exit(void)
 {
     printk(KERN_INFO "[PHOTON RING] removing ftrace_direct detector...\n");
 
+    if (kp_set_filter_ip.addr)
+        unregister_kprobe(&kp_set_filter_ip);
     if (kp_modify_direct.addr)
         unregister_kprobe(&kp_modify_direct);
     if (kp_set_notrace.addr)

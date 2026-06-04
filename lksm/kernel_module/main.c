@@ -45,6 +45,7 @@ struct detector
 };
 
 static struct detector detectors[] = {
+    /*
     {
         // reset_tainted_detector should be fist so its kprobe fires before kprobe_detector is active; this
         // avoids a false positive SUSPICIOUS alert during our own init
@@ -52,31 +53,39 @@ static struct detector detectors[] = {
         .init = reset_tainted_detector_init,
         .exit = reset_tainted_detector_exit,
     },
+    */
     {
         .name = "kprobe_detector",
         .init = kprobe_detector_init,
         .exit = kprobe_detector_exit,
     },
+    /*
     {
         .name = "taskstats_hook_detector",
         .init = taskstats_detector_init,
         .exit = taskstats_detector_exit,
     },
+    */
+    /*
     {
         .name = "hooking_audit_detector",
         .init = audit_detector_init,
         .exit = audit_detector_exit,
     },
+    */
+    /*
     {
         .name = "tcp_hiding_detector",
         .init = tcp_hiding_detector_init,
         .exit = tcp_hiding_detector_exit,
     },
+    */
     {
         .name = "become_root_detector",
         .init = become_root_detector_init,
         .exit = become_root_detector_exit,
     },
+    /*
     {
         .name = "bpf_hook_detector",
         .init = bpf_hook_detector_init,
