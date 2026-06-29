@@ -1,14 +1,14 @@
 #ifndef CDEV_CHANNEL_H
 #define CDEV_CHANNEL_H
-
+ 
 #include <linux/types.h>
 #include <linux/ioctl.h>
 #include "event_manager.h"
-
+ 
 /* device name — appears as /dev/photon_ring */
 #define PHOTON_RING_DEV_NAME    "photon_ring"
 #define PHOTON_RING_CLASS_NAME  "photon_ring"
-
+ 
 /*
  * ioctl interface
  *
@@ -17,7 +17,7 @@
  * is chosen to avoid collision with standard ioctl magic numbers.
  */
 #define PHOTON_RING_IOC_MAGIC   0xBE
-
+ 
 /*
  * PHOTON_IOC_SET_KEY - provide the 32-byte master key to the kernel module
  *
@@ -30,7 +30,7 @@
  * returns -EINVAL  if the key length implied by the ioctl is wrong.
  */
 #define PHOTON_IOC_SET_KEY  _IOW(PHOTON_RING_IOC_MAGIC, 1, __u8[32])
-
+ 
 /*
  * wire frame format written to the ring buffer and read by userspace.
  *
@@ -47,10 +47,10 @@ struct photon_encrypted_msg {
     u8  auth_tag[16];       /* AES-GCM authentication tag                      */
     u8  encrypted_data[];   /* flexible array — ciphertext of struct photon_event */
 } __attribute__((packed));
-
+ 
 /* ring buffer capacity — number of frames that can be queued before drops */
 #define PHOTON_RING_BUF_FRAMES  256
-
+ 
 /**
  * cdev_channel_init - register the character device
  *
@@ -60,7 +60,7 @@ struct photon_encrypted_msg {
  * returns 0 on success, negative error code on failure.
  */
 int cdev_channel_init(void);
-
+ 
 /**
  * cdev_channel_exit - unregister the character device
  *
@@ -68,7 +68,7 @@ int cdev_channel_init(void);
  * and releases the major number.
  */
 void cdev_channel_exit(void);
-
+ 
 /**
  * photon_send_encrypted_event - encrypt and enqueue an event for userspace
  * @event: plaintext photon_event to encrypt and deliver
@@ -82,5 +82,5 @@ void cdev_channel_exit(void);
  * returns 0 on success, negative error code on failure.
  */
 int photon_send_encrypted_event(struct photon_event *event);
-
+ 
 #endif /* CDEV_CHANNEL_H */

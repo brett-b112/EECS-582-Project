@@ -45,133 +45,16 @@ struct detector
 };
 
 static struct detector detectors[] = {
-    /*
-    {
-        // reset_tainted_detector should be fist so its kprobe fires before kprobe_detector is active; this
-        // avoids a false positive SUSPICIOUS alert during our own init
-        .name = "reset_tainted_detector",
-        .init = reset_tainted_detector_init,
-        .exit = reset_tainted_detector_exit,
-    },
-    */
-    {
-        .name = "kprobe_detector",
-        .init = kprobe_detector_init,
-        .exit = kprobe_detector_exit,
-    },
-    /*
-    {
-        .name = "taskstats_hook_detector",
-        .init = taskstats_detector_init,
-        .exit = taskstats_detector_exit,
-    },
-    */
-    /*
-    {
-        .name = "hooking_audit_detector",
-        .init = audit_detector_init,
-        .exit = audit_detector_exit,
-    },
-    */
-    /*
-    {
-        .name = "tcp_hiding_detector",
-        .init = tcp_hiding_detector_init,
-        .exit = tcp_hiding_detector_exit,
-    },
-    */
     {
         .name = "become_root_detector",
         .init = become_root_detector_init,
         .exit = become_root_detector_exit,
-    },
-    /*
-    {
-        .name = "bpf_hook_detector",
-        .init = bpf_hook_detector_init,
-        .exit = bpf_hook_detector_exit,
-    },
-    */
-   /*
-    {
-        .name = "tcp_hiding_detector",
-        .init = tcp_hiding_detector_init,
-        .exit = tcp_hiding_detector_exit,
-    },
-    */
-    {
-        .name = "kallsyms_detector",
-        .init = kallsyms_detector_init,
-        .exit = kallsyms_detector_exit,
     },
     {
         .name = "ftrace_direct_detector",
         .init = ftrace_direct_detector_init,
         .exit = ftrace_direct_detector_exit,
     },
-    /*
-    {
-        .name = "hiding_stat",
-        .init = hiding_stat_init,
-        .exit = hiding_stat_exit,
-    },
-    */
-    /*
-    {
-        .name = "taskstats_hook_detector", 
-        .init = ,taskstats_hook_detector_init
-        .exit = ,taskstats_hook_detector_exit
-    {
-        .name = "hiding_stat",
-        .init = hiding_stat_init,
-        .exit = hiding_stat_exit,
-    },
-    {
-        .name = "icmp_hook_detector",
-        .init = icmp_hook_detector_init,
-        .exit = icmp_hook_detector_exit,
-    },
-    {
-        .name = "hook_file_access",
-        .init = file_access_detector_init,
-        .exit = file_access_detector_exit,
-    },
-    {
-        .name = "hiding_directory",
-        .init = hiding_directory_init,
-        .exit = hiding_directory_exit,
-    },
-    {
-        .name = "trace_pid_detector",
-        .init = trace_pid_detector_init,
-        .exit = trace_pid_detector_exit,
-    },
-    {
-        .name = "hiding_readlink_detector",
-        .init = hiding_readlink_detector_init,
-        .exit = hiding_readlink_detector_exit,
-    },
-    {
-        .name = "hiding_chdir_detector",
-        .init = hiding_chdir_detector_init,
-        .exit = hiding_chdir_detector_exit,
-    },
-    {
-        .name = "hooks_write_detector",
-        .init = hooks_write_detector_init,
-        .exit = hooks_write_detector_exit,
-    },
-    {
-        .name = "clear_taint_dmesg_detector",
-        .init = clear_taint_dmesg_detector_init,
-        .exit = clear_taint_dmesg_detector_exit,
-    },
-    {
-        .name = "lkrg_bypass_detector",
-        .init = lkrg_bypass_detector_init,
-        .exit = lkrg_bypass_detector_exit,
-    },
-    */
     /* add future detectors here:
      * {
      *     .name = "syscall_detector",
@@ -179,6 +62,16 @@ static struct detector detectors[] = {
      *     .exit = syscall_detector_exit,
      * },
      */
+    {
+        .name = "kprobe_detector",
+        .init = kprobe_detector_init,
+        .exit = kprobe_detector_exit,
+    },
+    {
+        .name = "kallsyms_detector",
+        .init = kallsyms_detector_init,
+        .exit = kallsyms_detector_exit,
+    },
 };
 
 #define NUM_DETECTORS (sizeof(detectors) / sizeof(detectors[0]))
@@ -233,6 +126,9 @@ static int __init photon_ring_init(void)
            active_detectors, NUM_DETECTORS);
     printk(KERN_INFO "[PHOTON RING] System is now monitoring...\n");
     printk(KERN_INFO "========================================\n");
+
+    printk(KERN_INFO "[PHOTON RING] sizeof(photon_event)=%zu\n",
+       sizeof(struct photon_event));
 
     return 0;
 

@@ -23,7 +23,7 @@
  * Maximum number of dictionary entries.  One slot per non-NULL element of
  * photon_watchlist[]; unused slots are zeroed and skipped by the lookup.
  */
-#define WATCHLIST_RESOLVER_MAX_ENTRIES 128
+#define WATCHLIST_RESOLVER_MAX_ENTRIES 256
 
 /*
  * One entry in the address → name dictionary.

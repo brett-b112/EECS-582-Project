@@ -82,19 +82,16 @@
 #endif /* regs_get_kernel_argument */
 
 
-// #ifdef CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS
-// #include <linux/ftrace_regs.h>
+#ifdef CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS
+#include <linux/ftrace_regs.h>
 
-/* Use the portable ftrace_regs API (works on x86_64, ARM64, etc.) */
-// #define PHOTON_RING_GET_ARG(fregs, n) ftrace_regs_get_argument(fregs, n)
+/* Use the portable ftrace_regs API (works on x86_64, ARM64, etc.)        */
+/* Arguments are saved automatically — no SAVE_REGS needed, so preemption */
+/* is NOT disabled in our callbacks, enabling the fast encrypt path.       */
+#define PHOTON_RING_GET_ARG(fregs, n) ftrace_regs_get_argument(fregs, n)
+#define PHOTON_RING_FTRACE_FLAGS      (FTRACE_OPS_FL_RECURSION)
 
-/*
- * With FTRACE_WITH_ARGS, arguments are saved automatically.
- * No need for FTRACE_OPS_FL_SAVE_REGS.
- */
-// #define PHOTON_RING_FTRACE_FLAGS (FTRACE_OPS_FL_RECURSION)
-
-// #else /* !CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS */
+#else /* !CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS */
 
 /* Fallback for older kernels that use pt_regs */
 #include <asm/ptrace.h>
@@ -140,6 +137,6 @@
 
 #define PHOTON_RING_FTRACE_FLAGS (FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION)
 
-#endif /* CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS */
+#endif /* !CONFIG_HAVE_DYNAMIC_FTRACE_WITH_ARGS */
 
-// #endif /* PHOTON_RING_ARCH_H */
+#endif /* PHOTON_RING_ARCH_H */

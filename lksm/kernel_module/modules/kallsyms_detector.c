@@ -33,6 +33,8 @@
 
 static struct ftrace_ops kallsyms_ops;
 
+static unsigned long g_kallsyms_hook_addr = 0;
+
 static notrace void hook_kallsyms_lookup(unsigned long ip,
                                          unsigned long parent_ip,
                                          struct ftrace_ops *ops,
@@ -45,7 +47,11 @@ static notrace void hook_kallsyms_lookup(unsigned long ip,
         return;
 
     symname = (const char *)PHOTON_RING_GET_ARG(fregs, 0);
-    if (!symname || !photon_is_watchlisted(symname))
+
+    if (!symname || (unsigned long)symname < PAGE_OFFSET)
+        return;
+
+    if (!photon_is_watchlisted(symname))
         return;
 
     printk(KERN_ALERT
@@ -86,16 +92,24 @@ int kallsyms_detector_init(void)
         return -ENOENT;
     }
 
+    if (addr < PAGE_OFFSET) {
+        printk(KERN_ERR "[PHOTON RING] kallsyms addr 0x%lx is not a kernel address\n", addr);
+        return -EINVAL;
+    }
+
     printk(KERN_INFO "[PHOTON RING] kallsyms detector: "
            "kallsyms_lookup_name at 0x%lx\n", addr);
+
+    g_kallsyms_hook_addr = addr;
 
     kallsyms_ops.func  = hook_kallsyms_lookup;
     kallsyms_ops.flags = PHOTON_RING_FTRACE_FLAGS;
 
-    ret = ftrace_set_filter_ip(&kallsyms_ops, addr, 0, 0);
+    ret = ftrace_set_filter_ip(&kallsyms_ops, g_kallsyms_hook_addr, 0, 0);
     if (ret) {
         printk(KERN_ERR "[PHOTON RING] kallsyms detector: "
                "ftrace_set_filter_ip failed: %d\n", ret);
+        
         return ret;
     }
 
@@ -103,7 +117,7 @@ int kallsyms_detector_init(void)
     if (ret) {
         printk(KERN_ERR "[PHOTON RING] kallsyms detector: "
                "register_ftrace_function failed: %d\n", ret);
-        ftrace_set_filter_ip(&kallsyms_ops, addr, 1, 0);
+        ftrace_set_filter_ip(&kallsyms_ops, g_kallsyms_hook_addr, 1, 0);
         return ret;
     }
 
@@ -115,6 +129,9 @@ void kallsyms_detector_exit(void)
 {
     printk(KERN_INFO "[PHOTON RING] removing kallsyms detector...\n");
     unregister_ftrace_function(&kallsyms_ops);
-    ftrace_set_filter_ip(&kallsyms_ops, 0, 1, 0);
+    if (g_kallsyms_hook_addr) {
+        ftrace_set_filter_ip(&kallsyms_ops, g_kallsyms_hook_addr, 1, 0);
+        g_kallsyms_hook_addr = 0;
+    }
     printk(KERN_INFO "[PHOTON RING] kallsyms detector removed\n");
 }

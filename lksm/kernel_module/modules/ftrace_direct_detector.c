@@ -56,6 +56,8 @@ static void emit_event(u8 hook_source,
                        const char *filter_pattern)
 {
     struct ftrace_hook_data payload;
+    char sym_buf[KSYM_SYMBOL_LEN];  /* must be KSYM_SYMBOL_LEN — sprint_symbol_no_offset
+                                     * writes up to this many bytes unconditionally */
 
     memset(&payload, 0, sizeof(payload));
 
@@ -63,14 +65,20 @@ static void emit_event(u8 hook_source,
     payload.target_addr = target_addr;
     payload.new_addr    = new_addr;
 
-    if (target_sym)
+    if (target_sym) {
         strncpy(payload.target_symbol, target_sym,
                 sizeof(payload.target_symbol) - 1);
-    else if (target_addr)
-        sprint_symbol_no_offset(payload.target_symbol, target_addr);
+    } else if (target_addr) {
+        sprint_symbol_no_offset(sym_buf, target_addr);
+        strncpy(payload.target_symbol, sym_buf,
+                sizeof(payload.target_symbol) - 1);
+    }
 
-    if (new_addr)
-        sprint_symbol_no_offset(payload.new_addr_symbol, new_addr);
+    if (new_addr) {
+        sprint_symbol_no_offset(sym_buf, new_addr);
+        strncpy(payload.new_addr_symbol, sym_buf,
+                sizeof(payload.new_addr_symbol) - 1);
+    }
 
     if (filter_pattern)
         strncpy(payload.filter_pattern, filter_pattern,
@@ -84,11 +92,6 @@ static void emit_event(u8 hook_source,
            payload.new_addr_symbol, new_addr,
            payload.filter_pattern[0] ? payload.filter_pattern : "");
 
-    /*
-     * severity is always CRITICAL for this detector:
-     * every intercepted call represents either a glob-matched hook on a
-     * watchlisted symbol or a direct call patch — both unambiguously hostile.
-     */
     photon_log_event(PHOTON_EVENT_FTRACE_HOOK,
                      PHOTON_DETECTOR_FTRACE,
                      PHOTON_SEV_CRITICAL,

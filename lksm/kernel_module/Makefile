@@ -13,7 +13,7 @@ KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd)
 
 # Flags used by the kernel build system for module sources
-ccflags-y := -Wall -Wextra -I$(PWD)/include
+ccflags-y := -Wall -Wextra -I$(src)/include
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Userspace agent

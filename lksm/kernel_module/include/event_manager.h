@@ -107,6 +107,7 @@ struct photon_event {
     char caller_comm[16];   /* current->comm — promoted from payload structs  */
     u16  data_len;
     u8   data[PHOTON_MAX_EVENT_DATA];
+    u64   dispatch_ts;
 } __attribute__((packed));
 
 /* =========================================================================
@@ -276,5 +277,13 @@ u64 photon_get_sequence(void);
  * photon_send_heartbeat - emit a system.heartbeat event.
  */
 int photon_send_heartbeat(void);
+
+/**
+ * photon_flush_pending - wake the flush kthread to drain buffered events.
+ *
+ * Call after any state change that makes previously-undeliverable events
+ * deliverable: key set via ioctl, key rotation completed.
+ */
+void photon_flush_pending(void);
 
 #endif /* EVENT_MANAGER_H */

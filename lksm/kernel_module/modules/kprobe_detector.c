@@ -17,6 +17,7 @@ static struct ftrace_ops ops;
  * read-only thereafter — no locking needed.
  */
 static unsigned long g_kallsyms_addr = 0;
+static unsigned long g_register_kprobe_addr = 0;
 
 unsigned long kprobe_detector_get_kallsyms_addr(void)
 {
@@ -155,6 +156,7 @@ static notrace void hook_kprobe_register(unsigned long ip,
 
 int kprobe_detector_init(void)
 {
+    kallsyms_lookup_name_fn klookup;
     struct kprobe bootstrap_kp = {
         .symbol_name = "kallsyms_lookup_name",
     };
@@ -180,37 +182,60 @@ int kprobe_detector_init(void)
     g_kallsyms_addr = (unsigned long)bootstrap_kp.addr;
     unregister_kprobe(&bootstrap_kp);
 
-    printk(KERN_INFO "[PHOTON RING] resolved kallsyms_lookup_name at: 0x%lx\n",
-           g_kallsyms_addr);
+    klookup = (kallsyms_lookup_name_fn)g_kallsyms_addr;
+    watchlist_resolver_populate(klookup);
 
     /*
      * Build the watchlist address dictionary now that we have
      * kallsyms_lookup_name.  This is what lets us later detect the
      * symbol_name-nulling evasion technique in hook_kprobe_register.
      */
-    watchlist_resolver_populate((kallsyms_lookup_name_fn)g_kallsyms_addr);
-
-    addr = (unsigned long)register_kprobe;
-    printk(KERN_INFO "[PHOTON RING] register_kprobe at: 0x%lx\n", addr);
-
-    ops.func  = hook_kprobe_register;
-    ops.flags = PHOTON_RING_FTRACE_FLAGS;
-
-    ret = ftrace_set_filter_ip(&ops, addr, 0, 0);
-    if (ret) {
-        printk(KERN_ERR "[PHOTON RING] ftrace_set_filter_ip failed: %d\n", ret);
+    addr = klookup("register_kprobe");
+    if (!addr) {
+        printk(KERN_ERR
+               "[PHOTON RING] failed to resolve register_kprobe "
+               "via kallsyms_lookup_name\n");
         g_kallsyms_addr = 0;
-        return ret;
+        return -ENOENT;
+    }
+ 
+    if (addr < PAGE_OFFSET) {
+        printk(KERN_ERR
+               "[PHOTON RING] register_kprobe resolved to non-kernel "
+               "address 0x%lx — aborting\n", addr);
+        g_kallsyms_addr = 0;
+        return -EINVAL;
     }
 
+    g_register_kprobe_addr = addr;
+ 
+    printk(KERN_INFO "[PHOTON RING] register_kprobe at: 0x%lx\n",
+           g_register_kprobe_addr);
+ 
+    ops.func  = hook_kprobe_register;
+    ops.flags = PHOTON_RING_FTRACE_FLAGS;
+ 
+    ret = ftrace_set_filter_ip(&ops, g_register_kprobe_addr, 0, 0);
+    if (ret) {
+        printk(KERN_ERR "[PHOTON RING] ftrace_set_filter_ip failed: %d\n", ret);
+        g_kallsyms_addr        = 0;
+        g_register_kprobe_addr = 0;
+        return ret;
+    }
+ 
     ret = register_ftrace_function(&ops);
     if (ret) {
         printk(KERN_ERR "[PHOTON RING] register_ftrace_function failed: %d\n", ret);
-        ftrace_set_filter_ip(&ops, addr, 1, 0);
-        g_kallsyms_addr = 0;
+        /*
+         * Roll back the filter using the cached address — not 0 — so that
+         * the filter hash entry we just inserted is actually removed.
+         */
+        ftrace_set_filter_ip(&ops, g_register_kprobe_addr, 1, 0);
+        g_kallsyms_addr        = 0;
+        g_register_kprobe_addr = 0;
         return ret;
     }
-
+ 
     printk(KERN_INFO "[PHOTON RING] kprobe detector active — "
            "monitoring register_kprobe\n");
     return 0;
@@ -220,7 +245,11 @@ void kprobe_detector_exit(void)
 {
     printk(KERN_INFO "[PHOTON RING] removing kprobe detector...\n");
     unregister_ftrace_function(&ops);
-    ftrace_set_filter_ip(&ops, 0, 1, 0);
+    if (g_register_kprobe_addr) {
+        ftrace_set_filter_ip(&ops, g_register_kprobe_addr, 1, 0);
+        g_register_kprobe_addr = 0;
+    }
     g_kallsyms_addr = 0;
+    g_register_kprobe_addr = 0;
     printk(KERN_INFO "[PHOTON RING] kprobe detector removed\n");
 }
