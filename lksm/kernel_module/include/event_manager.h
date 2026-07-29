@@ -52,6 +52,7 @@ enum photon_event_type {
     /* hiding category */
     PHOTON_EVENT_HIDING_PROCESS  = 6,   /* "hiding.process"  — stat / proc detectors */
     PHOTON_EVENT_HIDING_NETWORK  = 7,   /* "hiding.network"  — tcp_hiding_detector   */
+    PHOTON_EVENT_CRYPTO_HIJACK = 8,
 
     /* system category */
     PHOTON_EVENT_SYSTEM_HEARTBEAT    = 100,  /* "system.heartbeat"    */
@@ -68,6 +69,7 @@ enum photon_detector_id {
     PHOTON_DETECTOR_BPF       = 4,
     PHOTON_DETECTOR_FTRACE    = 5,
     PHOTON_DETECTOR_PRIVESC   = 6,
+    PHOTON_DETECTOR_CRYPTO = 7,
 };
 
 /* =========================================================================
@@ -215,6 +217,15 @@ struct hidden_entity_data {
     unsigned long hooked_addr;      /* resolved addr of hooked symbol (net)    */
     u32           real_nlink;       /* inode->i_nlink from kern_path           */
     u32           flags;            /* HIDDEN_FLAG_* bitmask                   */
+} __attribute__((packed));
+
+// payload struct crypto hijacking
+
+struct crypto_hijack_data {
+    char          cra_name[64];
+    char          cra_driver_name[64];
+    int           cra_priority;
+    unsigned long return_addr;
 } __attribute__((packed));
 
 /* =========================================================================

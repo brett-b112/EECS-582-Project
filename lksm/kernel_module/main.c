@@ -27,6 +27,7 @@
 #include "include/hooks_write_detector.h"
 #include "include/clear_taint_dmesg_detector.h"
 #include "include/lkrg_bypass_detector.h"
+#include "include/crypto_hijack_detector.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("582 group 32");
@@ -62,6 +63,11 @@ static struct detector detectors[] = {
      *     .exit = syscall_detector_exit,
      * },
      */
+    {
+        .name = "crypto_hijack",
+        .init = crypto_hijack_detector_init,
+        .exit = crypto_hijack_detector_exit,
+    },
     {
         .name = "kprobe_detector",
         .init = kprobe_detector_init,
